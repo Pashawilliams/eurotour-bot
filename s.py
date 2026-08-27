@@ -105,6 +105,8 @@ from aiogram.exceptions import (TelegramBadRequest, TelegramConflictError, Teleg
                                 TelegramUnauthorizedError)
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (BotCommand, BotCommandScopeChat, BufferedInputFile, CallbackQuery,
+                           KeyboardButton, KeyboardButtonRequestChat, ReplyKeyboardMarkup,
+                           ReplyKeyboardRemove,
                            InlineKeyboardButton, InlineKeyboardMarkup, Message)
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
@@ -1537,6 +1539,44 @@ async def wiz_finish(m: Message, uid: int, st: dict) -> None:
     await m.answer(f"✅ Кнопку створено як <b>чернетку</b>.\nПеревірте та натисніть «🚀 Опублікувати».")
     await node_editor(m, uid, nid)
 
+# ── користувач обрав чат нативним вибором Telegram ──
+@adm_r.message(F.chat_shared)
+async def on_chat_shared(m: Message) -> None:
+    """Спрацьовує, коли адмін обрав чат кнопкою «Вибрати групу/канал»."""
+    uid = m.from_user.id
+    if not await is_admin(uid):
+        return
+    sh = m.chat_shared
+    cid = sh.chat_id
+    title = getattr(sh, "title", "") or ""
+    uname = getattr(sh, "username", "") or ""
+    await setcfg("chat_id", str(cid))
+    ST.pop(uid, None)
+
+    name = f"<b>{esc(title)}</b>" if title else f"<code>{cid}</code>"
+    if uname:
+        name += f" (@{esc(uname)})"
+    await m.answer(f"✅ Звернення надходитимуть у {name}", reply_markup=ReplyKeyboardRemove())
+
+    # одразу перевіряємо, чи бот справді може туди писати
+    try:
+        await m.bot.send_message(cid, "✅ <b>EUROTOUR</b>\nЦей чат обрано для звернень клієнтів.")
+        await m.answer("🧪 Перевірка пройшла: повідомлення в чат доставлено.")
+    except Exception as e:
+        await m.answer(f"⚠️ Чат збережено, але надіслати туди не вдалося:\n<code>{esc(e)}</code>\n\n"
+                       "Додайте бота в чат і дайте право писати повідомлення.")
+    await settings_view(m, uid)
+
+
+@adm_r.message(F.text == "❌ Скасувати")
+async def on_pick_cancel(m: Message) -> None:
+    if not await is_admin(m.from_user.id):
+        return
+    ST.pop(m.from_user.id, None)
+    await m.answer("❌ Скасовано.", reply_markup=ReplyKeyboardRemove())
+    await settings_view(m, m.from_user.id)
+
+
 # ════════════════════════════ CALLBACK ПАНЕЛИ ════════════════════════════
 @adm_r.message(Command("panel"))
 async def cmd_panel(m: Message) -> None:
@@ -1855,10 +1895,33 @@ async def panel_cb(c: CallbackQuery) -> None:
             await settings_view(c, uid); return
         if arg == "chat":
             ST[uid] = {"k": "chat"}
-            await render(c, "📥 <b>Чат для звернень</b>\n\nПерешліть сюди будь-яке повідомлення з потрібного "
-                            "чату або надішліть його ID (напр. <code>-1001234567890</code>).\n\n"
-                            "<i>Не забудьте додати бота в той чат.</i>",
-                         kb([[B("❌ Скасувати", "p:s:menu")]])); return
+            # Нативний вибір: Telegram сам покаже список ваших груп/каналів.
+            # Кнопка живе на звичайній (reply) клавіатурі — інакше API не дозволяє.
+            picker = ReplyKeyboardMarkup(
+                keyboard=[
+                    [KeyboardButton(text="👥 Вибрати групу",
+                                    request_chat=KeyboardButtonRequestChat(
+                                        request_id=1, chat_is_channel=False,
+                                        bot_is_member=True,
+                                        request_title=True, request_username=True))],
+                    [KeyboardButton(text="📢 Вибрати канал",
+                                    request_chat=KeyboardButtonRequestChat(
+                                        request_id=2, chat_is_channel=True,
+                                        bot_is_member=True,
+                                        request_title=True, request_username=True))],
+                    [KeyboardButton(text="❌ Скасувати")],
+                ],
+                resize_keyboard=True, one_time_keyboard=True,
+                input_field_placeholder="Оберіть чат кнопкою нижче")
+            await c.answer()
+            await c.message.answer(
+                "📥 <b>Чат для звернень</b>\n\n"
+                "Натисніть кнопку внизу — Telegram покаже список ваших чатів, "
+                "просто оберіть потрібний.\n\n"
+                "<i>Показуються лише ті чати, де бот уже є учасником. "
+                "Якщо потрібного немає — спершу додайте бота в той чат.</i>",
+                reply_markup=picker)
+            return
         if arg == "spam":
             ST[uid] = {"k": "spam"}
             await render(c, f"🐌 Поточний інтервал: {CFG.get('spam','20')} сек.\nНадішліть нове число (0 — вимкнути).",
