@@ -45,13 +45,19 @@ jobs:
             echo "Гілки bot-data ще немає — перший запуск, база буде створена."
           fi
 
-      # Токен зашитий прямо в s.py — секрети не потрібні.
+      # Токен береться із секрету — у коді його немає.
       - name: Запустити бота
         env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          OWNER_ID: ${{ secrets.OWNER_ID }}
           DB_PATH: ${{ github.workspace }}/data/eurotour.db
           RESTART_HOURS: "0"        # перезапуском керує сам GitHub
           PYTHONUNBUFFERED: "1"
         run: |
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "::error::Немає секрету BOT_TOKEN (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
           # Лишаємо 3 хв, щоб встигнути зберегти базу до вбивства завдання
           timeout 20700 python -u s.py || code=$?
           echo "Бот зупинився (код ${code:-0})"
