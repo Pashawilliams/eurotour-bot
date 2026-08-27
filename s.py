@@ -301,7 +301,7 @@ SEED = [  # (typ, target, roww, sys, {lang:(label, body)})
         "ru": ("ℹ️ О нас", "ℹ️ <b>О нас</b>\n\nEUROTOUR — пассажирские перевозки между Украиной и Европой.\nКомфортные автобусы, опытные водители, удобные маршруты."),
         "pl": ("ℹ️ O nas", "ℹ️ <b>O nas</b>\n\nEUROTOUR — przewozy pasażerskie między Ukrainą a Europą."),
         "en": ("ℹ️ About us", "ℹ️ <b>About us</b>\n\nEUROTOUR — passenger transport between Ukraine and Europe.")}),
-    ("page", "", 2, "contact", {
+    ("page", "", 1, "contact", {          # roww=1 — кнопки по одній, підпис не обрізається
         "uk": ("📞 Зв'язок", "📞 <b>Зв'язок з нами</b>\n\nМи на зв'язку та відповімо особисто.\n\n👤 Менеджер: Дмитро\n💬 Telegram: @pereviznyk_support\n📱 Телефон: +380 00 000 00 00\n\nНапишіть нам прямо тут — повідомлення одразу потрапить до менеджера."),
         "ru": ("📞 Связь", "📞 <b>Связь с нами</b>\n\nМы на связи и ответим лично.\n\n👤 Менеджер: Дмитрий\n💬 Telegram: @pereviznyk_support\n📱 Телефон: +380 00 000 00 00\n\nНапишите нам прямо здесь — сообщение сразу попадёт к менеджеру."),
         "pl": ("📞 Kontakt", "📞 <b>Kontakt z nami</b>\n\n👤 Menedżer: Dmytro\n💬 Telegram: @pereviznyk_support\n📱 Telefon: +380 00 000 00 00"),
@@ -500,6 +500,18 @@ async def init_db() -> None:
                                          (nid, l, lab))
                     log.info("Додано кнопку «Мої звернення» (розділ %s)", frm[1])
             await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('mymsgbtn','1')")
+    # Розділ зі зверненнями показуємо по одній кнопці в рядок — інакше
+    # «✍️ Написати зараз» і «📋 Мої звернення» стискаються і текст обрізається.
+    cur = await db.execute("SELECT v FROM cfg WHERE k='ctc1col'")
+    if not await cur.fetchone():
+        with suppress(Exception):
+            await db.execute("UPDATE nodes SET roww=1 WHERE id IN "
+                             "(SELECT DISTINCT parent FROM nodes WHERE typ IN ('form','mymsg'))")
+            # порядок: спершу «Написати зараз», нижче «Мої звернення»
+            await db.execute("UPDATE nodes SET pos=0 WHERE typ='form'")
+            await db.execute("UPDATE nodes SET pos=1 WHERE typ='mymsg'")
+            await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('ctc1col','1')")
+            log.info("Розділ звернень: одна кнопка в рядок, порядок вирівняно")
     await db.commit()
     await db.commit()
     log.info("БД: %s (journal=%s)", DB_PATH,
