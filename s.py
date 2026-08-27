@@ -105,6 +105,7 @@ from aiogram.exceptions import (TelegramBadRequest, TelegramConflictError, Teleg
                                 TelegramUnauthorizedError)
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (BotCommand, BotCommandScopeChat, BufferedInputFile, CallbackQuery,
+                           InputMediaPhoto, InputMediaVideo,
                            KeyboardButton, KeyboardButtonRequestChat, ReplyKeyboardMarkup,
                            ReplyKeyboardRemove,
                            InlineKeyboardButton, InlineKeyboardMarkup, Message)
@@ -212,6 +213,10 @@ CREATE TABLE IF NOT EXISTS tr(node INTEGER, lang TEXT, label TEXT DEFAULT '', bo
   mtype TEXT DEFAULT '', mid TEXT DEFAULT '', machine INTEGER DEFAULT 0, PRIMARY KEY(node,lang));
 -- кеш перекладів, щоб не смикати мережу двічі за той самий текст
 CREATE TABLE IF NOT EXISTS trcache(h TEXT, lang TEXT, txt TEXT, PRIMARY KEY(h,lang));
+-- галерея: скільки завгодно фото/відео/файлів на один розділ
+CREATE TABLE IF NOT EXISTS media(id INTEGER PRIMARY KEY AUTOINCREMENT, node INTEGER,
+  lang TEXT DEFAULT '', mtype TEXT, mid TEXT, pos INTEGER DEFAULT 0);
+CREATE INDEX IF NOT EXISTS media_node ON media(node,lang,pos);
 CREATE TABLE IF NOT EXISTS sys(k TEXT, lang TEXT, v TEXT, PRIMARY KEY(k,lang));
 CREATE TABLE IF NOT EXISTS cfg(k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, uname TEXT, name TEXT, lang TEXT DEFAULT 'uk',
@@ -632,6 +637,48 @@ async def can(uid: int, what: str) -> bool:
     return what in ("tickets", "users")
 
 
+async def gallery(nid: int, lang: str) -> list[aiosqlite.Row]:
+    """Усі медіа розділу: спершу для цієї мови, інакше спільні для всіх."""
+    rows = await qa("SELECT * FROM media WHERE node=? AND lang=? ORDER BY pos,id", nid, lang)
+    if not rows:
+        rows = await qa("SELECT * FROM media WHERE node=? AND lang='' ORDER BY pos,id", nid)
+    return rows
+
+
+async def send_gallery(bot: Bot, chat: int, items: list, caption: str = "") -> None:
+    """Надсилає скільки завгодно медіа: групами по 10 (ліміт Telegram на альбом).
+
+    Фото й відео йдуть одним альбомом, документи/аудіо — окремими групами,
+    бо Telegram не дозволяє змішувати їх в одному повідомленні.
+    """
+    album = [i for i in items if i["mtype"] in ("photo", "video")]
+    other = [i for i in items if i["mtype"] not in ("photo", "video")]
+    first = True
+    for pack in [album[i:i + 10] for i in range(0, len(album), 10)]:
+        media = []
+        for it in pack:
+            cap = caption[:CAP_LIMIT] if (first and caption and len(media) == 0) else None
+            cls = InputMediaPhoto if it["mtype"] == "photo" else InputMediaVideo
+            media.append(cls(media=it["mid"], caption=cap, parse_mode="HTML" if cap else None))
+        with suppress(Exception):
+            if len(media) == 1:
+                m0 = pack[0]
+                send = bot.send_photo if m0["mtype"] == "photo" else bot.send_video
+                await send(chat, m0["mid"],
+                           caption=caption[:CAP_LIMIT] if first and caption else None)
+            else:
+                await bot.send_media_group(chat, media)
+        first = False
+    for it in other:
+        send = {"animation": bot.send_animation, "document": bot.send_document,
+                "audio": bot.send_audio, "voice": bot.send_voice}.get(it["mtype"])
+        if send:
+            with suppress(Exception):
+                await send(chat, it["mid"],
+                           caption=caption[:CAP_LIMIT] if first and caption else None)
+                first = False
+
+
 async def send_content(bot: Bot, chat: int, text: str, markup: Optional[InlineKeyboardMarkup],
                        mtype: str = "", mid: str = "") -> Optional[Message]:
     """Отправка с учётом лимитов: длинная подпись → медиа отдельно, текст следом."""
@@ -765,6 +812,19 @@ async def show_node(ev: Message | CallbackQuery, nid: int, uid: int) -> None:
     if not text and nid != 1:
         parent_t = await node_tr(nid, lang)
         text = parent_t["label"] or "•"
+    # якщо в розділі кілька медіа — спершу галерея, потім текст із кнопками
+    gal = await gallery(nid, lang)
+    if len(gal) > 1:
+        chat = (getattr(ev, "message", None) or ev).chat.id
+        if isinstance(ev, CallbackQuery):
+            with suppress(Exception):
+                await ev.message.delete()
+        await send_gallery(ev.bot, chat, gal)
+        await send_content(ev.bot, chat, text, markup)
+        return
+    if len(gal) == 1:
+        await render(ev, text, markup, gal[0]["mtype"], gal[0]["mid"])
+        return
     await render(ev, text, markup, t["mtype"] or "", t["mid"] or "")
 
 
@@ -1028,11 +1088,13 @@ async def node_editor(ev, uid: int, nid: int) -> None:
     prev = (t["body"] or "—")
     prev = prev[:400] + ("…" if len(prev) > 400 else "")
     kids = await scalar("SELECT COUNT(*) FROM nodes WHERE parent=?", nid)
+    ngal = await scalar("SELECT COUNT(*) FROM media WHERE node=? AND lang=''", nid)
+    mediainfo = f"{ngal} файл(ів)" if ngal else (t["mtype"] or "—")
     txt = (f"{await crumb(nid, lang)}\n\n"
            f"🏷 Кнопка: <b>{esc(t['label'] or '—')}</b>\n"
            f"🔧 Тип: <code>{n['typ']}</code>   ·   Статус: {status}\n"
            f"🌍 Мова: {FLAG.get(lang,'')} {UP.get(lang, lang)}   ·   👁 Показів: {n['views']}\n"
-           f"🖼 Медіа: {t['mtype'] or '—'}   ·   🔘 Кнопок усередині: {kids}\n"
+           f"🖼 Медіа: {mediainfo}   ·   🔘 Кнопок усередині: {kids}\n"
            f"{'🔗 Ціль: <code>'+esc(n['target'])+'</code>' if n['target'] else ''}\n"
            f"━━━━━━━━━━━━━━━━━━\n{prev}")
     rows = [[B("✏️ Змінити текст", f"p:txt:{nid}"), B("➕ Дописати", f"p:app:{nid}")],
@@ -1433,11 +1495,25 @@ async def admin_input(m: Message, st: dict) -> None:
     if k == "med":
         if not mid:
             await m.answer("⚠️ Надішліть фото, відео, GIF, аудіо або документ."); return
-        await ex("INSERT INTO tr(node,lang,mtype,mid) VALUES(?,?,?,?) "
-                 "ON CONFLICT(node,lang) DO UPDATE SET mtype=?,mid=?", st["node"], lang, mtype, mid, mtype, mid)
-        ST.pop(uid, None)
-        await m.answer(f"✅ Медіа ({mtype}) збережено.")
-        await node_editor(m, uid, st["node"]); return
+        nid = st["node"]
+        # додаємо у галерею — можна слати скільки завгодно файлів поспіль
+        pos = await scalar("SELECT COALESCE(MAX(pos),0)+1 FROM media WHERE node=? AND lang=''", nid)
+        await ex("INSERT INTO media(node,lang,mtype,mid,pos) VALUES(?,'',?,?,?)", nid, mtype, mid, pos)
+        # перше медіа дублюємо у tr — щоб працювали старі місця показу
+        cnt = await scalar("SELECT COUNT(*) FROM media WHERE node=? AND lang=''", nid)
+        if cnt == 1:
+            await ex("INSERT INTO tr(node,lang,mtype,mid) VALUES(?,?,?,?) "
+                     "ON CONFLICT(node,lang) DO UPDATE SET mtype=?,mid=?",
+                     nid, lang, mtype, mid, mtype, mid)
+        st["n"] = cnt
+        ST[uid] = st                       # лишаємо режим — чекаємо наступні файли
+        await m.answer(
+            f"✅ Додано {mtype} · усього в галереї: <b>{cnt}</b>\n\n"
+            "Надсилайте ще файли — приймаю без обмежень.\n"
+            "Коли закінчите, натисніть «✅ Готово».",
+            reply_markup=kb([[B("✅ Готово", f"p:medok:{nid}")],
+                             [B("🗑 Очистити галерею", f"p:medclr:{nid}")]]))
+        return
 
     if k == "lbl":
         lab = (m.text or "").strip()
@@ -1825,14 +1901,31 @@ async def panel_cb(c: CallbackQuery) -> None:
             await render(c, "🔢 Надішліть номер рядка.", kb([[B("❌ Скасувати", f"p:n:{arg}")]]))
         return
     if sec == "med":
-        t = await node_tr(I(arg), lang)
-        ST[uid] = {"k": "med", "node": I(arg)}
-        await render(c, f"🖼 <b>Медіа розділу</b>\nПоточне: {t['mtype'] or '—'}\n\n"
-                        f"Надішліть фото, відео, GIF, аудіо або документ.\n"
-                        f"<i>Якщо текст довший за 1024 символи — медіа піде окремим повідомленням.</i>",
-                     kb([[B("🗑 Видалити медіа", f"p:medel:{arg}")], [B("❌ Скасувати", f"p:n:{arg}")]])); return
+        nid = I(arg)
+        cnt = await scalar("SELECT COUNT(*) FROM media WHERE node=? AND lang=''", nid)
+        ST[uid] = {"k": "med", "node": nid}
+        await render(c, f"🖼 <b>Галерея розділу</b>\nЗараз файлів: <b>{cnt}</b>\n\n"
+                        f"Надсилайте фото, відео, GIF, аудіо чи документи — "
+                        f"<b>скільки завгодно, одне за одним</b> або альбомом.\n"
+                        f"Кожен файл одразу додається до галереї.\n\n"
+                        f"<i>Фото й відео показуються клієнту альбомом.</i>",
+                     kb([[B("✅ Готово", f"p:medok:{nid}")],
+                         [B("🗑 Очистити галерею", f"p:medclr:{nid}")],
+                         [B("❌ Скасувати", f"p:n:{nid}")]])); return
+    if sec == "medok":
+        ST.pop(uid, None)
+        cnt = await scalar("SELECT COUNT(*) FROM media WHERE node=? AND lang=''", I(arg))
+        await c.answer(f"Готово · у галереї {cnt}")
+        await node_editor(c, uid, I(arg)); return
+    if sec == "medclr":
+        await ex("DELETE FROM media WHERE node=?", I(arg))
+        await ex("UPDATE tr SET mtype='',mid='' WHERE node=?", I(arg))
+        ST.pop(uid, None)
+        await c.answer("Галерею очищено")
+        await node_editor(c, uid, I(arg)); return
     if sec == "medel":
-        await ex("UPDATE tr SET mtype='',mid='' WHERE node=? AND lang=?", I(arg), lang)
+        await ex("DELETE FROM media WHERE node=?", I(arg))
+        await ex("UPDATE tr SET mtype='',mid='' WHERE node=?", I(arg))
         ST.pop(uid, None); await node_editor(c, uid, I(arg)); return
     if sec == "lbl":
         ST[uid] = {"k": "lbl", "node": I(arg)}
