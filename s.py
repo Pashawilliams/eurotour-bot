@@ -396,6 +396,28 @@ async def init_db() -> None:
         with suppress(Exception):
             await db.execute("INSERT INTO cfg(k,v) VALUES('autotr','1') "
                              "ON CONFLICT(k) DO UPDATE SET v='1'")
+    # Раніше медіа зберігалось у tr окремо для КОЖНОЇ мови, тому фото,
+    # додане українською, не показувалось російською. Переносимо такі медіа
+    # у галерею як спільні (lang='') — щоб вони були в усіх мовах.
+    cur = await db.execute("SELECT v FROM cfg WHERE k='mediamig'")
+    if not await cur.fetchone():
+        with suppress(Exception):
+            deflang = CFG_DEF.get("deflang", "uk")
+            cur = await db.execute(
+                "SELECT node,lang,mtype,mid FROM tr WHERE mid IS NOT NULL AND mid<>'' "
+                "ORDER BY node, (lang=?) DESC, lang", (deflang,))
+            seen: set[int] = set()
+            for nd, _lg, mt, mi in await cur.fetchall():
+                if nd in seen:
+                    continue
+                seen.add(nd)
+                c2 = await db.execute("SELECT 1 FROM media WHERE node=? LIMIT 1", (nd,))
+                if await c2.fetchone():
+                    continue          # галерея вже є — не чіпаємо
+                await db.execute("INSERT INTO media(node,lang,mtype,mid,pos) VALUES(?,'',?,?,0)",
+                                 (nd, mt, mi))
+                log.info("Міграція медіа: розділ %s → спільна галерея", nd)
+            await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('mediamig','1')")
     await db.commit()
     await db.commit()
     log.info("БД: %s (journal=%s)", DB_PATH,
@@ -638,10 +660,20 @@ async def can(uid: int, what: str) -> bool:
 
 
 async def gallery(nid: int, lang: str) -> list[aiosqlite.Row]:
-    """Усі медіа розділу: спершу для цієї мови, інакше спільні для всіх."""
+    """Усі медіа розділу: спершу для цієї мови, інакше спільні для всіх.
+
+    Якщо для мови окремих медіа не задано — беремо спільні (lang=''),
+    щоб картинки показувались однаково в УСІХ мовах.
+    """
     rows = await qa("SELECT * FROM media WHERE node=? AND lang=? ORDER BY pos,id", nid, lang)
     if not rows:
         rows = await qa("SELECT * FROM media WHERE node=? AND lang='' ORDER BY pos,id", nid)
+    if not rows:
+        # запасний варіант: медіа зі старого поля tr будь-якої мови
+        r = await q1("SELECT mtype,mid FROM tr WHERE node=? AND mid IS NOT NULL AND mid<>'' "
+                     "ORDER BY (lang=?) DESC, lang LIMIT 1", nid, CFG.get("deflang", "uk"))
+        if r:
+            return [{"mtype": r["mtype"], "mid": r["mid"]}]
     return rows
 
 
@@ -917,6 +949,10 @@ async def cb_node(c: CallbackQuery) -> None:
             await c.answer("⚠️"); return
     if typ == "file":
         t = await node_tr(nid, lang)
+        g = await gallery(nid, lang)
+        if g:
+            await send_gallery(c.bot, c.message.chat.id, g, t["body"] or "")
+            await c.answer(); return
         if t["mid"]:
             await send_content(c.bot, c.message.chat.id, t["body"] or "", None, t["mtype"], t["mid"])
             await c.answer(); return
@@ -1502,9 +1538,11 @@ async def admin_input(m: Message, st: dict) -> None:
         # перше медіа дублюємо у tr — щоб працювали старі місця показу
         cnt = await scalar("SELECT COUNT(*) FROM media WHERE node=? AND lang=''", nid)
         if cnt == 1:
-            await ex("INSERT INTO tr(node,lang,mtype,mid) VALUES(?,?,?,?) "
-                     "ON CONFLICT(node,lang) DO UPDATE SET mtype=?,mid=?",
-                     nid, lang, mtype, mid, mtype, mid)
+            # дублюємо у tr для ВСІХ мов — інакше медіа видно лише однією мовою
+            for lg in langs_on():
+                await ex("INSERT INTO tr(node,lang,mtype,mid) VALUES(?,?,?,?) "
+                         "ON CONFLICT(node,lang) DO UPDATE SET mtype=?,mid=?",
+                         nid, lg, mtype, mid, mtype, mid)
         st["n"] = cnt
         ST[uid] = st                       # лишаємо режим — чекаємо наступні файли
         await m.answer(
@@ -1628,8 +1666,10 @@ async def admin_input(m: Message, st: dict) -> None:
         if typ == "file":
             if not mid:
                 await m.answer("⚠️ Надішліть файл або фото."); return
-            await ex("INSERT INTO tr(node,lang,mtype,mid) VALUES(?,?,?,?) "
-                     "ON CONFLICT(node,lang) DO UPDATE SET mtype=?,mid=?", nid, lang, mtype, mid, mtype, mid)
+            for lg in langs_on():
+                await ex("INSERT INTO tr(node,lang,mtype,mid) VALUES(?,?,?,?) "
+                         "ON CONFLICT(node,lang) DO UPDATE SET mtype=?,mid=?",
+                         nid, lg, mtype, mid, mtype, mid)
             val = ""
         await ex("UPDATE nodes SET target=? WHERE id=?", val, nid)
         ST.pop(uid, None)
