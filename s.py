@@ -446,6 +446,14 @@ async def init_db() -> None:
                     else:
                         keep.append(lb)
             await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('lblmig','1')")
+    # Кеш перекладів міг зберегти зіпсовані фрази (напр. «Мы ответим на лично»),
+    # бо раніше текст перекладався сам із себе. Чистимо його один раз.
+    cur = await db.execute("SELECT v FROM cfg WHERE k='trcclr'")
+    if not await cur.fetchone():
+        with suppress(Exception):
+            await db.execute("DELETE FROM trcache")
+            await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('trcclr','1')")
+            log.info("Кеш перекладів очищено")
     await db.commit()
     await db.commit()
     log.info("БД: %s (journal=%s)", DB_PATH,
@@ -581,12 +589,18 @@ async def autotranslate_node(nid: int, src_lang: str) -> int:
             continue
         lab = await translate_label(src["label"], lang, src_lang) if src["label"] else ""
         bod = await translate(src["body"], lang, src_lang) if src["body"] else ""
-        if not lab and not bod:
+        # Якщо переклад не вдався — лишаємо старе значення, але НІКОЛИ не
+        # копіюємо оригінал: інакше в українську версію потрапляв би
+        # російський текст «як є».
+        old_lab = (cur["label"] if cur else "") or ""
+        old_bod = (cur["body"] if cur else "") or ""
+        new_lab = lab or old_lab
+        new_bod = bod or old_bod
+        if new_lab == old_lab and new_bod == old_bod:
             continue
         await ex("INSERT INTO tr(node,lang,label,body,machine) VALUES(?,?,?,?,1) "
                  "ON CONFLICT(node,lang) DO UPDATE SET label=?,body=?,machine=1",
-                 nid, lang, lab or (cur["label"] if cur else ""), bod or (cur["body"] if cur else ""),
-                 lab or (cur["label"] if cur else ""), bod or (cur["body"] if cur else ""))
+                 nid, lang, new_lab, new_bod, new_lab, new_bod)
         done += 1
     if done:
         log.info("Автопереклад вузла %s з %s → %s мов", nid, src_lang, done)
@@ -615,23 +629,33 @@ _L_RU = set("ыъэё")
 _L_PL = set("ąćęłńóśźż")
 
 
-def detect_lang(text: str) -> str:
-    """Визначає мову підпису за характерними літерами.
+_RU_ONLY = ("ы", "ъ", "э", "ё", "щий", "ого ", "его ", "ется", "ться",
+            "связь", "мы ", "наши", "который", "если", "очень", "сейчас")
+_UK_ONLY = ("і", "ї", "є", "ґ", "ння", "ський", "ми ", "наші", "який",
+            "якщо", "дуже", "зараз", "зв'язок")
 
-    Повертає '' якщо впевненості немає (напр. «Канал» і «Сайт» однакові
-    українською й російською) — такий текст не чіпаємо.
+
+def detect_lang(text: str) -> str:
+    """Визначає мову тексту за характерними літерами й словами.
+
+    Працює і з підписом кнопки, і з великим HTML-текстом. Повертає ''
+    якщо впевненості немає (напр. «Канал» однакове двома мовами) —
+    такий текст не чіпаємо.
     """
     t = (text or "").casefold()
-    if not t:
+    t = re.sub(r"<[^>]+>", " ", t)              # прибрати HTML-теги
+    t = re.sub(r"https?://\S+|@\w+|\+?\d[\d\s()-]{5,}", " ", t)   # лінки, @, телефони
+    if not t.strip():
         return ""
     ltr = set(t)
     if ltr & _L_PL:
         return "pl"
-    has_uk, has_ru = bool(ltr & _L_UK), bool(ltr & _L_RU)
-    if has_uk and not has_ru:
-        return "uk"
-    if has_ru and not has_uk:
+    ru = sum(t.count(w) for w in _RU_ONLY)
+    uk = sum(t.count(w) for w in _UK_ONLY)
+    if ru > uk:
         return "ru"
+    if uk > ru:
+        return "uk"
     return ""            # кирилиця без прикмет або латиниця — не вгадуємо
 
 
@@ -658,43 +682,60 @@ async def translate_label(label: str, to: str, frm: str) -> str:
     return f"{pre}{out}{post}"
 
 
-async def fix_lang_mismatch() -> int:
-    """Виправляє підписи, написані не тією мовою.
+async def _move_field(nid: int, lg: str, real: str, field: str, val: str) -> bool:
+    """Переносить одне поле (label або body) у його справжню мову.
 
-    Якщо адмін сидів в українському інтерфейсі, але написав підпис
-    російською, текст лягав у слот «uk» — і кнопка була російською
-    в українській версії. Переносимо текст у його справжню мову,
-    а решту мов перекладаємо.
+    Помилковий слот перекладаємо. Повертає True, якщо щось змінили.
+    """
+    cur = await q1(f"SELECT {field},machine FROM tr WHERE node=? AND lang=?", nid, real)
+    cval = (cur[field] if cur else "") or ""
+    same = _same_label(cval, val) if field == "label" else (cval == val)
+    # оригінал кладемо у його мову, якщо там порожньо / машинний / те саме
+    if not cval or (cur and cur["machine"]) or same:
+        await ex(f"INSERT INTO tr(node,lang,{field}) VALUES(?,?,?) "
+                 f"ON CONFLICT(node,lang) DO UPDATE SET {field}=?", nid, real, val, val)
+        await ex("UPDATE tr SET machine=0 WHERE node=? AND lang=?", nid, real)
+    # помилковий слот — переклад
+    new = (await translate_label(val, lg, real)) if field == "label" \
+        else (await translate(val, lg, real))
+    if not new:
+        return False
+    await ex(f"INSERT INTO tr(node,lang,{field},machine) VALUES(?,?,?,1) "
+             f"ON CONFLICT(node,lang) DO UPDATE SET {field}=?,machine=1",
+             nid, lg, new, new)
+    log.info("Розділ %s: %s (%s) лежав у слоті %s → перекладено", nid, field, real, lg)
+    return True
+
+
+async def fix_lang_mismatch() -> int:
+    """Виправляє підписи й тексти, написані не тією мовою.
+
+    Якщо адмін сидів в українському меню, але вставив російський текст,
+    він лягав у слот «uk» — і українці бачили російську. Підпис і текст
+    перевіряються ОКРЕМО: правильний підпис не з'їде через чужий текст.
     """
     if CFG.get("autotr", "1") != "1":
         return 0
     on, fixed = langs_on(), 0
-    for n in await qa("SELECT id FROM nodes WHERE typ<>'root' ORDER BY id"):
+    for n in await qa("SELECT id FROM nodes ORDER BY id"):
         nid = n["id"]
-        rows = {r["lang"]: r for r in await qa("SELECT lang,label,machine FROM tr WHERE node=?", nid)}
         for lg in on:
-            r = rows.get(lg)
-            lab = ((r["label"] if r else "") or "").strip()
-            real = detect_lang(lab)
-            if not lab or not real or real == lg or real not in on:
+            r = await q1("SELECT label,body FROM tr WHERE node=? AND lang=?", nid, lg)
+            if not r:
                 continue
-            # 1) оригінал кладемо у його справжню мову (це текст адміна — ручний)
-            cur = rows.get(real)
-            if not cur or not (cur["label"] or "").strip() or cur["machine"] or _same_label(cur["label"], lab):
-                await ex("INSERT INTO tr(node,lang,label,machine) VALUES(?,?,?,0) "
-                         "ON CONFLICT(node,lang) DO UPDATE SET label=?,machine=0",
-                         nid, real, lab, lab)
-            # 2) слот, де текст опинився помилково, перекладаємо
-            new = await translate_label(lab, lg, real)
-            if new:
-                await ex("INSERT INTO tr(node,lang,label,machine) VALUES(?,?,?,1) "
-                         "ON CONFLICT(node,lang) DO UPDATE SET label=?,machine=1",
-                         nid, lg, new, new)
-                fixed += 1
-                log.info("Підпис розділу %s: %r (%s) → слот %s = %r", nid, lab, real, lg, new)
-            rows = {x["lang"]: x for x in await qa("SELECT lang,label,machine FROM tr WHERE node=?", nid)}
+            for field in ("label", "body"):
+                val = (r[field] or "").strip()
+                if not val:
+                    continue
+                real = detect_lang(val)
+                if not real or real == lg or real not in on:
+                    continue
+                with suppress(Exception):
+                    if await _move_field(nid, lg, real, field, val):
+                        fixed += 1
+        await asyncio.sleep(0)
     if fixed:
-        log.info("Виправлено підписів не тією мовою: %s", fixed)
+        log.info("Виправлено полів не тією мовою: %s", fixed)
     return fixed
 
 
@@ -721,10 +762,24 @@ async def translate_missing() -> int:
         if not src:
             continue
         slab = rows[src]["label"] if rows.get(src) else ""
-        need = [l for l in on if l != src and (
-            not rows.get(l)
-            or not (rows[l]["label"] or rows[l]["body"])
-            or (rows[l]["machine"] and slab and _same_label(rows[l]["label"], slab)))]
+        sbod = (rows[src]["body"] if rows.get(src) else "") or ""
+
+        def stale(l: str) -> bool:
+            r = rows.get(l)
+            if not r:
+                return True
+            if not (r["label"] or r["body"]):
+                return True
+            if not r["machine"]:
+                return False            # ручний переклад — недоторканий
+            # машинний слот, який дослівно збігається з оригіналом → не перекладено
+            if slab and _same_label(r["label"] or "", slab):
+                return True
+            if sbod and (r["body"] or "") == sbod:
+                return True
+            return False
+
+        need = [l for l in on if l != src and stale(l)]
         if need:
             with suppress(Exception):
                 total += await autotranslate_node(nid, src)
@@ -1384,7 +1439,17 @@ async def move(nid: int, direction: str) -> None:
     await db.commit()
 
 
-async def save_body(nid: int, lang: str, body: str) -> None:
+async def save_body(nid: int, lang: str, body: str) -> str:
+    """Зберігає текст розділу і розкидає переклад на інші мови.
+
+    Текст кладемо у ТУ мову, якою він реально написаний. Якщо адмін
+    сидить в українському меню, але вставив російський текст, він
+    потрапить у російський слот, а українська версія перекладеться —
+    інакше українці бачили б російський текст.
+    """
+    real = detect_lang(body)
+    if real and real in langs_on():
+        lang = real
     old = await q1("SELECT body FROM tr WHERE node=? AND lang=?", nid, lang)
     if old and old["body"]:
         await ex("INSERT INTO hist(node,lang,body,ts) VALUES(?,?,?,?)", nid, lang, old["body"], now())
@@ -1393,9 +1458,16 @@ async def save_body(nid: int, lang: str, body: str) -> None:
                  nid, lang, nid, lang, HIST_KEEP)
     await ex("INSERT INTO tr(node,lang,body,machine) VALUES(?,?,?,0) "
              "ON CONFLICT(node,lang) DO UPDATE SET body=?,machine=0", nid, lang, body, body)
+    # Адмін замінив текст розділу — це нова редакція, тож усі інші мови
+    # мають оновитися. Позначаємо їх машинними, інакше стара версія
+    # лишалась би висіти (саме через це українці бачили старий текст).
+    for l in langs_on():
+        if l != lang:
+            await ex("UPDATE tr SET machine=1 WHERE node=? AND lang=?", nid, l)
     # цей текст написав адмін — розкидаємо переклад на інші мови у фоні
     with suppress(RuntimeError):
         asyncio.get_running_loop().create_task(autotranslate_node(nid, lang))
+    return lang
 
 
 async def del_subtree(nid: int) -> None:
