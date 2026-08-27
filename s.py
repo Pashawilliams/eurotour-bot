@@ -169,7 +169,8 @@ LANGS = {"uk": "🇺🇦 Українська", "ru": "🇷🇺 Русский",
 FLAG = {"uk": "🇺🇦", "ru": "🇷🇺", "pl": "🇵🇱", "en": "🇬🇧"}
 UP = {"uk": "UA", "ru": "RU", "pl": "PL", "en": "EN"}
 CAP_LIMIT, TXT_LIMIT, HIST_KEEP, BC_DELAY = 1024, 4096, 10, 0.05
-ROLES = {"owner": "👑 Власник", "full": "🛠 Повний доступ", "tickets": "📨 Тільки звернення"}
+ROLES = {"owner": "👑 Власник", "full": "🛠 Повний доступ",
+         "tickets": "📨 Менеджер (лише відповіді)"}
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"),
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -261,7 +262,9 @@ SYS_DEF = {
 }
 CFG_DEF = {"chat_id": "", "notify": "1", "confirm": "1", "files": "1", "spam": "20",
            "maint": "0", "backbtn": "1", "deflang": "uk", "langs": "uk,ru,pl,en",
-           "autotr": "1"}          # автопереклад правок на інші мови
+           "autotr": "1",          # автопереклад правок на інші мови
+           "tochat": "1",          # надсилати звернення у груповий чат
+           "toadmins": "0"}        # дублювати звернення особисто адмінам/менеджерам
 
 GREET = {"uk": "👋 <b>Вітаємо!</b>\n\nEUROTOUR — пасажирські перевезення Україна ⇄ Європа.\nКомфорт, пунктуальність, безпека.\n\nОберіть розділ 👇",
          "ru": "👋 <b>Добро пожаловать!</b>\n\nEUROTOUR — пассажирские перевозки Украина ⇄ Европа.\nКомфорт, пунктуальность, безопасность.\n\nВыберите раздел 👇",
@@ -817,11 +820,20 @@ async def is_admin(uid: int) -> Optional[str]:
 
 
 async def can(uid: int, what: str) -> bool:
+    """Права ролі.
+
+    owner   — усе;
+    full    — усе, крім керування адмінами;
+    tickets — «менеджер»: тільки звернення (відповіді клієнтам) і список
+              користувачів. У налаштування, розділи й розсилку не пускаємо.
+    """
     role = await is_admin(uid)
     if not role:
         return False
-    if role in ("owner", "full"):
-        return role == "owner" or what != "admins"
+    if role == "owner":
+        return True
+    if role == "full":
+        return what != "admins"
     return what in ("tickets", "users")
 
 
@@ -1152,11 +1164,18 @@ async def deliver_ticket(bot: Bot, m: Message, u: aiosqlite.Row) -> None:
     markup = kb([[B("✍️ Відповісти", f"p:t:r:{tid}"), B("👤 Профіль", f"p:t:c:{tid}")],
                  [B("✅ Опрацьовано", f"p:t:done:{tid}")]])
     targets: list[int] = []
-    if CFG.get("chat_id"):
+    # 1) груповий чат — можна вимкнути в налаштуваннях
+    if CFG.get("tochat", "1") == "1" and CFG.get("chat_id"):
         try:
             targets.append(int(CFG["chat_id"]))
         except ValueError:
             pass
+    # 2) особисто адмінам і менеджерам (хелперам)
+    if CFG.get("toadmins", "0") == "1":
+        for a in await qa("SELECT id FROM admins"):
+            if a["id"] not in targets:
+                targets.append(a["id"])
+    # 3) власник — за увімкненим дублюванням або якщо більше нікому надіслати
     if not targets or CFG.get("notify", "1") == "1":
         if OWNER_ID not in targets:
             targets.append(OWNER_ID)
@@ -1439,6 +1458,43 @@ async def tickets_list(ev, uid: int, status: str, page: int) -> None:
                      + ("\n".join(lines) or "Порожньо."), kb(rows))
 
 
+async def _ticket_card_data(tid: int):
+    """Готує текст і кнопки картки звернення (спільне для панелі й особистих)."""
+    r = await q1("SELECT t.*,u.uname,u.name,u.lang,u.created AS ucreated,u.banned FROM tickets t "
+                 "LEFT JOIN users u ON u.id=t.uid WHERE t.id=?", tid)
+    if not r:
+        return None, "", None
+    hist = await qa("SELECT id,body,created FROM tickets WHERE uid=? ORDER BY id DESC LIMIT 5", r["uid"])
+    hl = "\n".join(f"• {ts(h['created'])} — {esc((h['body'] or '')[:60])}" for h in hist)
+    un = f"@{r['uname']}" if r["uname"] else "@ немає"
+    stat = {"new": "🔴 Нове", "work": "🟡 В роботі", "closed": "✅ Закрито"}.get(r["status"], r["status"])
+    txt = (f"⚙️ Панель › 📨 <b>Звернення #{tid}</b>\n\n"
+           f"👤 {esc(r['name'])}\n🔗 {esc(un)}\n🆔 <code>{r['uid']}</code>\n"
+           f"🌍 {FLAG.get(r['lang'] or 'uk','')} {UP.get(r['lang'] or 'uk','UA')}\n"
+           f"📅 Перший контакт: {ts(r['ucreated'])}\n🏷 Статус: {stat}"
+           f"{' · Мітка: '+esc(r['tag']) if r['tag'] else ''}\n"
+           f"{'👤 Взяв: '+esc(r['mgr']) if r['mgr'] else ''}\n"
+           f"━━━━━━━━━━━━━━━━━━\n💬 {esc(r['body'] or '(медіа)')}\n\n"
+           f"📜 <b>Історія:</b>\n{hl}")
+    rows = [[B("✍️ Відповісти", f"p:t:r:{tid}")],
+            [B("🟡 В роботу", f"p:t:work:{tid}"), B("✅ Закрити", f"p:t:done:{tid}")],
+            [B("🏷 Мітка", f"p:t:tag:{tid}"),
+             B("🚫 Розблокувати" if r["banned"] == 1 else "🚫 Заблокувати", f"p:t:ban:{tid}")]]
+    if r["uname"]:
+        rows.append([U("💬 Відкрити діалог", f"https://t.me/{r['uname']}")])
+    rows.append(BOTTOM(f"p:t:list:{r['status']}:0"))
+    return r, txt, kb(rows)
+
+
+async def ticket_card_to(bot: Bot, chat: int, uid: int, tid: int) -> None:
+    """Надсилає картку звернення окремим повідомленням (для натискань у групі)."""
+    r, txt, markup = await _ticket_card_data(tid)
+    if not r:
+        await bot.send_message(chat, "⚠️ Звернення не знайдено.")
+        return
+    await send_content(bot, chat, txt, markup, r["mtype"] or "", r["mid"] or "")
+
+
 async def ticket_card(ev, uid: int, tid: int) -> None:
     r = await q1("SELECT t.*,u.uname,u.name,u.lang,u.created AS ucreated,u.banned FROM tickets t "
                  "LEFT JOIN users u ON u.id=t.uid WHERE t.id=?", tid)
@@ -1496,17 +1552,23 @@ async def users_view(ev, uid: int, page: int) -> None:
 async def settings_view(ev, uid: int) -> None:
     chat = CFG.get("chat_id") or "—"
     on = lambda k, d="1": "✅ увімк." if CFG.get(k, d) == "1" else "⬜ вимк."
+    nadm = await scalar("SELECT COUNT(*) FROM admins")
+    chat_line = f"<code>{esc(chat)}</code>" if CFG.get("tochat", "1") == "1" else "⬜ вимкнено"
     txt = (f"⚙️ Панель › ⚙️ <b>Налаштування</b>\n\n"
-           f"📥 Чат для звернень: <code>{esc(chat)}</code>\n"
+           f"<b>Куди йдуть звернення</b>\n"
+           f"📥 У груповий чат: {on('tochat')} · {chat_line}\n"
+           f"👮 Особисто адмінам ({nadm}): {on('toadmins','0')}\n"
            f"🔔 Дублювати власнику: {on('notify')}\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
            f"✅ Підтвердження клієнту: {on('confirm')}\n"
            f"📎 Приймати файли: {on('files')}\n"
            f"⬅️ Кнопка «Назад»: {on('backbtn')}\n"
            f"🐌 Антиспам: {CFG.get('spam','20')} сек\n"
            f"🔧 Технічний режим: {on('maint','0')}\n"
            f"🌐 Автопереклад правок: {on('autotr')}")
-    rows = [[B("📥 Змінити чат", "p:s:chat"), B("🧪 Тест", "p:s:test")],
-            [B("🔔 Дублювання", "p:s:notify"), B("✅ Підтвердження", "p:s:confirm")],
+    rows = [[B("📥 Чат: увімк./вимк.", "p:s:tochat"), B("✏️ Змінити чат", "p:s:chat")],
+            [B("👮 Особисто адмінам", "p:s:toadmins"), B("🔔 Дублювання", "p:s:notify")],
+            [B("🧪 Тест", "p:s:test"), B("✅ Підтвердження", "p:s:confirm")],
             [B("📎 Файли", "p:s:files"), B("⬅️ Кнопка «Назад»", "p:s:backbtn")],
             [B("🐌 Антиспам", "p:s:spam"), B("🔧 Техрежим", "p:s:maint")],
             [B("🌐 Автопереклад", "p:s:autotr")],
@@ -1867,12 +1929,29 @@ async def admin_input(m: Message, st: dict) -> None:
         if not t:
             ST.pop(uid, None); await m.answer("⚠️ Звернення не знайдено."); return
         lg = await ulang(t["uid"])
+        mgr = f"@{m.from_user.username}" if m.from_user.username else str(uid)
         try:
             await send_content(m.bot, t["uid"], f"{await T('answer', lg)}\n\n{text}",
                                kb([[B(await T("home", lg), "home")]]), mtype, mid)
-            await ex("UPDATE tickets SET status='work',mgr=? WHERE id=?",
-                     f"@{m.from_user.username}" if m.from_user.username else str(uid), st["tid"])
-            await m.answer("✅ Відповідь надіслано клієнту.")
+            await ex("UPDATE tickets SET status='work',mgr=? WHERE id=?", mgr, st["tid"])
+            await m.answer(f"✅ Відповідь надіслано клієнту (звернення #{st['tid']}).\n"
+                           f"Статус: 🟡 в роботі.")
+            # повідомляємо решту команди, щоб двоє не відповідали одному клієнту
+            seen = {uid}
+            note = (f"✉️ <b>Відповідь на #{st['tid']}</b> надіслав {esc(mgr)}\n"
+                    f"💬 {esc((text or '(медіа)')[:150])}")
+            if CFG.get("tochat", "1") == "1" and CFG.get("chat_id"):
+                with suppress(Exception):
+                    cid = int(CFG["chat_id"])
+                    if cid not in seen:
+                        seen.add(cid)
+                        await m.bot.send_message(cid, note)
+            if CFG.get("toadmins", "0") == "1":
+                for a in await qa("SELECT id FROM admins"):
+                    if a["id"] not in seen:
+                        seen.add(a["id"])
+                        with suppress(Exception):
+                            await m.bot.send_message(a["id"], note)
         except TelegramForbiddenError:
             await m.answer("⚠️ Клієнт заблокував бота — доставити не вдалося.")
         except TelegramBadRequest as e:
@@ -2043,12 +2122,25 @@ async def cmd_panel(m: Message) -> None:
     await panel_home(m, m.from_user.id)
 
 
-@adm_r.callback_query(F.data.startswith("p:"), F.message.chat.type == "private")
+@adm_r.callback_query(F.data.startswith("p:"))
 async def panel_cb(c: CallbackQuery) -> None:
     uid = c.from_user.id
     if not await is_admin(uid):
         await c.answer()                          # тихо игнорируем чужих
         return
+    # У групі працюють лише кнопки під зверненням (відповісти / профіль /
+    # опрацьовано). Решту панелі відкриваємо тільки в особистому чаті —
+    # щоб налаштування бота не світились у групі.
+    in_group = bool(c.message) and c.message.chat.type != "private"
+    if in_group and not c.data.startswith(("p:t:", "p:noop")):
+        await c.answer("Відкрийте панель в особистому чаті з ботом.", show_alert=True)
+        return
+    # Менеджер (роль «тільки звернення») не має доступу до решти панелі.
+    if not await can(uid, "all"):
+        allowed = ("p:t:", "p:u:", "p:home", "p:exit", "p:noop")
+        if not c.data.startswith(allowed):
+            await c.answer("Недостатньо прав.", show_alert=True)
+            return
     p = c.data.split(":")
     sec = p[1] if len(p) > 1 else "home"
     arg = p[2] if len(p) > 2 else ""
@@ -2276,12 +2368,39 @@ async def panel_cb(c: CallbackQuery) -> None:
         if arg == "list":
             await tickets_list(c, uid, arg2 or "new", int(arg3 or 0)); return
         if arg == "c":
+            if c.message and c.message.chat.type != "private":
+                try:
+                    await ticket_card_to(c.bot, uid, uid, I(arg2))
+                    await c.answer("Картку надіслав вам в особисті.", show_alert=True)
+                except (TelegramForbiddenError, TelegramBadRequest):
+                    await c.answer("Спершу напишіть боту в особисті (/start).", show_alert=True)
+                return
             await ticket_card(c, uid, I(arg2)); return
         if arg == "r":
-            ST[uid] = {"k": "reply", "tid": I(arg2)}
-            await c.message.answer(f"✍️ Надішліть відповідь для звернення #{arg2}. "
-                                   f"Вона піде клієнту від імені бота.",
-                                   reply_markup=kb([[B("❌ Скасувати", "p:home")]])); return
+            tid = I(arg2)
+            t = await q1("SELECT t.*,u.uname,u.name FROM tickets t "
+                         "LEFT JOIN users u ON u.id=t.uid WHERE t.id=?", tid)
+            if not t:
+                await c.answer("Звернення не знайдено.", show_alert=True); return
+            ST[uid] = {"k": "reply", "tid": tid}
+            who = f"@{t['uname']}" if t["uname"] else (t["name"] or t["uid"])
+            ask = (f"✍️ <b>Відповідь на звернення #{tid}</b>\n"
+                   f"👤 {esc(str(who))}\n"
+                   f"💬 <i>{esc((t['body'] or '(медіа)')[:120])}</i>\n\n"
+                   f"Надішліть текст або файл — клієнт отримає це від імені бота.")
+            markup = kb([[B("❌ Скасувати", "p:home")]])
+            # Кнопку могли натиснути в групі — там діалог вести не можна,
+            # тому запит на відповідь завжди йде в особистий чат адміна.
+            if c.message and c.message.chat.type != "private":
+                try:
+                    await c.bot.send_message(uid, ask, reply_markup=markup)
+                    await c.answer("Написав вам в особисті — відповідайте там.", show_alert=True)
+                except (TelegramForbiddenError, TelegramBadRequest):
+                    ST.pop(uid, None)
+                    await c.answer("Спершу напишіть боту в особисті (/start), "
+                                   "інакше він не може вам відповісти.", show_alert=True)
+                return
+            await c.message.answer(ask, reply_markup=markup); return
         if arg == "work":
             await ex("UPDATE tickets SET status='work',mgr=? WHERE id=?",
                      f"@{c.from_user.username}" if c.from_user.username else str(uid), I(arg2))
@@ -2364,8 +2483,11 @@ async def panel_cb(c: CallbackQuery) -> None:
     if sec == "s":
         if arg == "menu":
             await settings_view(c, uid); return
-        if arg in ("notify", "confirm", "files", "backbtn", "maint", "autotr"):
+        if arg in ("notify", "confirm", "files", "backbtn", "maint", "autotr", "tochat"):
             await setcfg(arg, "0" if CFG.get(arg, "1") == "1" else "1")
+            await settings_view(c, uid); return
+        if arg == "toadmins":                       # типово вимкнено
+            await setcfg(arg, "0" if CFG.get(arg, "0") == "1" else "1")
             await settings_view(c, uid); return
         if arg == "chat":
             ST[uid] = {"k": "chat"}
