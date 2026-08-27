@@ -1,0 +1,1326 @@
+{
+ "admins": [
+  {
+   "id": 7906546417,
+   "role": "owner",
+   "name": "Owner"
+  },
+  {
+   "id": 8871326698,
+   "role": "full",
+   "name": "Олексій Перевізник"
+  }
+ ],
+ "cfg": [
+  {
+   "k": "chat_id",
+   "v": "-1004454112979"
+  },
+  {
+   "k": "notify",
+   "v": "1"
+  },
+  {
+   "k": "confirm",
+   "v": "1"
+  },
+  {
+   "k": "files",
+   "v": "1"
+  },
+  {
+   "k": "spam",
+   "v": "20"
+  },
+  {
+   "k": "maint",
+   "v": "0"
+  },
+  {
+   "k": "backbtn",
+   "v": "1"
+  },
+  {
+   "k": "deflang",
+   "v": "uk"
+  },
+  {
+   "k": "langs",
+   "v": "uk,ru,pl,en"
+  },
+  {
+   "k": "autotr",
+   "v": "1"
+  },
+  {
+   "k": "mediamig",
+   "v": "1"
+  },
+  {
+   "k": "lblmig",
+   "v": "1"
+  },
+  {
+   "k": "tochat",
+   "v": "0"
+  },
+  {
+   "k": "toadmins",
+   "v": "1"
+  }
+ ],
+ "hist": [
+  {
+   "id": 1,
+   "node": 3,
+   "lang": "uk",
+   "body": "📞 <b>Зв'язок з нами</b>\n\nМи на зв'язку та відповімо особисто.\n\n👤 Менеджер: Дмитро\n💬 Telegram: @pereviznyk_support\n📱 Телефон: +380 00 000 00 00\n\nНапишіть нам прямо тут — повідомлення одразу потрапить до менеджера.",
+   "ts": 1787832604
+  },
+  {
+   "id": 2,
+   "node": 3,
+   "lang": "uk",
+   "body": "📞 <b>Зв'язок з нами</b>\n\nМи на зв'язку та відповімо особисто.\n\n👤 Менеджер: Дмитро\n💬 Telegram: @pereviznyk_support\n📱 Телефон: +380 00 000 00 00\n\nНапишіть нам прямо тут — повідомлення одразу потрапить до менеджера.",
+   "ts": 1787832657
+  },
+  {
+   "id": 3,
+   "node": 3,
+   "lang": "uk",
+   "body": "📞 <b>Зв'язок з нами</b>\n\nМи на зв'язку та відповімо особисто.\n\n👤 Менеджер: Дмитро\n💬 Telegram: @pereviznyk_support\n📱 Телефон: +380 00 000 00 00\n\nНапишіть нам прямо тут — повідомлення одразу потрапить до менеджера.",
+   "ts": 1787833352
+  },
+  {
+   "id": 4,
+   "node": 2,
+   "lang": "uk",
+   "body": "ℹ️ <b>Про нас</b>\n\nEUROTOUR — пасажирські перевезення між Україною та Європою.\nКомфортні автобуси, досвідчені водії, зручні маршрути.",
+   "ts": 1787842847
+  },
+  {
+   "id": 5,
+   "node": 2,
+   "lang": "uk",
+   "body": "Вітаємо 👋\n\n<b>Ми - EUROTOUR</b>\n\nКомфортні, безпечні та надійні поїздки по Україні та Європі для тих, хто цінує якісний сервіс 🤝\n\n🇺🇦 Перевезення по Україні\n🇪🇺 Поїздки країнами Європи\n🌍 Україна ↔ Європа\n🚐 Комфортні авто та професійні водії\n🕐 Подача авто 24/7\n💼 Індивідуальний VIP-сервіс\n\nЗаберемо вас у потрібному місці та доставимо прямо до пункту призначення 🛣️",
+   "ts": 1787843082
+  },
+  {
+   "id": 6,
+   "node": 3,
+   "lang": "uk",
+   "body": "📞 <b>Зв'язок з нами</b>\n\nМи на зв'язку та відповімо особисто.\n\n👤 Менеджер:Сергій \n💬 Telegram: @eurotourbus1\n📱 Телефон:+380680813450\n\n\n👤 Менеджер:Олексій \n💬 Telegram: @pereviznyk001\n📱 Телефон: +380 97 345 20 25",
+   "ts": 1787861054
+  }
+ ],
+ "media": [
+  {
+   "id": 1,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBJmqQM2zsjFLRAsDDiUC7SNASwPGwAAJ6HWsbxSeASEbTb7h1ULg-AQADAgADeQADPQQ",
+   "pos": 1
+  },
+  {
+   "id": 2,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBJ2qQM2zRxaqwHw7btl75QAJXbA_OAAJ7HWsbxSeASGSXpBFkFg7aAQADAgADeQADPQQ",
+   "pos": 1
+  },
+  {
+   "id": 3,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBKWqQM2wlbSKRFo2gSPmFi66bq_sSAAJ9HWsbxSeASGoP97-LtLcFAQADAgADeQADPQQ",
+   "pos": 1
+  },
+  {
+   "id": 4,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBK2qQM2yCizMNazuhjivGxxL-vU4lAAJ_HWsbxSeASHAWinbSVPbnAQADAgADeQADPQQ",
+   "pos": 1
+  },
+  {
+   "id": 5,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBLGqQM2z5SiJToH8FQBLKd5XhwQzhAAKAHWsbxSeASCcrSh6lp86yAQADAgADeQADPQQ",
+   "pos": 1
+  },
+  {
+   "id": 6,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBKmqQM2wy-rkv3C6VwDd-_EccLfoQAAJ-HWsbxSeASDiDqFroRE61AQADAgADeQADPQQ",
+   "pos": 1
+  },
+  {
+   "id": 7,
+   "node": 8,
+   "lang": "",
+   "mtype": "video",
+   "mid": "BAACAgIAAxkBAAIBLWqQM2w-o5sUwIxAj4Z2Ix5RcA1wAAL_qQACxSeASAvf_XnmGTZ7PQQ",
+   "pos": 1
+  },
+  {
+   "id": 8,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBL2qQM2zYfphL_QzT410AAcQxtOQlYQACgx1rG8UngEgJp-eMlWnM_AEAAwIAA3kAAz0E",
+   "pos": 1
+  },
+  {
+   "id": 9,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBKGqQM2wd1wABhGDgelhnp5K89sw3UgACfB1rG8UngEi-bfHKdDuKpgEAAwIAA3kAAz0E",
+   "pos": 1
+  },
+  {
+   "id": 10,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBLmqQM2wmiIg-q6HHI6aAmSV-1ePJAAKCHWsbxSeASFjRUSYw-xVSAQADAgADeQADPQQ",
+   "pos": 1
+  },
+  {
+   "id": 11,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBQ2qQM3B6yj0wBXgFIZ4RW1yAgnIHAAKEHWsbxSeASGAo9jFQQXDzAQADAgADeAADPQQ",
+   "pos": 2
+  },
+  {
+   "id": 12,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBRGqQM3Dm10x4WYZ4sI03R9fdgpBsAAKFHWsbxSeASLMDr2C8oTamAQADAgADeAADPQQ",
+   "pos": 2
+  },
+  {
+   "id": 13,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBRWqQM3B9N-1StmXPsWpTSO7Z3K7PAAKGHWsbxSeASCRqqOee4F3nAQADAgADeAADPQQ",
+   "pos": 2
+  },
+  {
+   "id": 14,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBR2qQM3CW90_q-lJiuCZuN-97kp-aAAKIHWsbxSeASLrA__U6bjq7AQADAgADeQADPQQ",
+   "pos": 2
+  },
+  {
+   "id": 15,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBSGqQM3DWoZTTUsjRYpM83Weonps1AAKJHWsbxSeASPb00qls8jMzAQADAgADeQADPQQ",
+   "pos": 2
+  },
+  {
+   "id": 16,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBSWqQM3BS3Kj58pqcJIbNzC5jFn8JAAKKHWsbxSeASKVOYkkv1CyGAQADAgADeQADPQQ",
+   "pos": 2
+  },
+  {
+   "id": 17,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBS2qQM3A908CjGNu2cB6F7VB2BRB5AAKMHWsbxSeASOwIxJQgLXMCAQADAgADeQADPQQ",
+   "pos": 2
+  },
+  {
+   "id": 18,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBTGqQM3BbDS4PMeLNXNwagwLDUB5XAAKNHWsbxSeASLt3Qw576yuLAQADAgADeQADPQQ",
+   "pos": 2
+  },
+  {
+   "id": 19,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBRmqQM3AJDYfPneeTLcZgQydZTJKnAAKHHWsbxSeASMhCOZ12-E8ZAQADAgADeQADPQQ",
+   "pos": 2
+  },
+  {
+   "id": 20,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBSmqQM3CGQRU-aIJG87zYt-WESCeUAAKLHWsbxSeASIQUyBmvefH-AQADAgADeQADPQQ",
+   "pos": 2
+  },
+  {
+   "id": 21,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBV2qQM3KgWp8am0RZ0kMugUDC5FTcAAKOHWsbxSeASCHyFcixvQwfAQADAgADeQADPQQ",
+   "pos": 3
+  },
+  {
+   "id": 22,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBWGqQM3KNPwbd21l7luRAbLrRoC4nAAKPHWsbxSeASCbPVIV0dyewAQADAgADeQADPQQ",
+   "pos": 3
+  },
+  {
+   "id": 23,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBSWqQM3BS3Kj58pqcJIbNzC5jFn8JAAKKHWsbxSeASKVOYkkv1CyGAQADAgADeQADPQQ",
+   "pos": 3
+  },
+  {
+   "id": 24,
+   "node": 8,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIBWmqQM3JahklWdwYlAw4T-aQeiKlKAAKQHWsbxSeASAzzzJwMODj6AQADAgADeQADPQQ",
+   "pos": 3
+  },
+  {
+   "id": 26,
+   "node": 1,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIDAmqQR_xWoxrOZFe9P0WHUPIDjrr6AAI9HmsbxSeASLNXbs0CpOxDAQADAgADeQADPQQ",
+   "pos": 1
+  },
+  {
+   "id": 27,
+   "node": 3,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIDgGqQSdr9t4RJK7NouLFESMBWdxIpAAJIHmsbxSeASKKy0MiuVbACAQADAgADeQADPQQ",
+   "pos": 1
+  },
+  {
+   "id": 28,
+   "node": 2,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIEHWqQS_z3_oQDHt4f1dK-uHkCrgyuAAJQHmsbxSeASNqfr2hqmFNmAQADAgADeQADPQQ",
+   "pos": 1
+  },
+  {
+   "id": 29,
+   "node": 9,
+   "lang": "",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIEiWqQT1hEkV8RTzrEU0a8MbaJW9kKAAJmHmsbxSeASAF3VYabl8LnAQADAgADeQADPQQ",
+   "pos": 1
+  }
+ ],
+ "nodes": [
+  {
+   "id": 1,
+   "parent": 0,
+   "typ": "root",
+   "target": "",
+   "pos": 0,
+   "roww": 2,
+   "hidden": 0,
+   "draft": 0,
+   "views": 0,
+   "sys": "root"
+  },
+  {
+   "id": 2,
+   "parent": 1,
+   "typ": "page",
+   "target": "",
+   "pos": 0,
+   "roww": 2,
+   "hidden": 0,
+   "draft": 0,
+   "views": 46,
+   "sys": "about"
+  },
+  {
+   "id": 3,
+   "parent": 1,
+   "typ": "page",
+   "target": "",
+   "pos": 1,
+   "roww": 2,
+   "hidden": 0,
+   "draft": 0,
+   "views": 90,
+   "sys": "contact"
+  },
+  {
+   "id": 4,
+   "parent": 3,
+   "typ": "form",
+   "target": "",
+   "pos": 0,
+   "roww": 1,
+   "hidden": 0,
+   "draft": 0,
+   "views": 0,
+   "sys": "form"
+  },
+  {
+   "id": 5,
+   "parent": 1,
+   "typ": "url",
+   "target": "https://eurotour.casa/",
+   "pos": 2,
+   "roww": 2,
+   "hidden": 0,
+   "draft": 0,
+   "views": 0,
+   "sys": "site"
+  },
+  {
+   "id": 6,
+   "parent": 1,
+   "typ": "url",
+   "target": "https://t.me/Eurotour202",
+   "pos": 3,
+   "roww": 2,
+   "hidden": 0,
+   "draft": 0,
+   "views": 0,
+   "sys": "channel"
+  },
+  {
+   "id": 7,
+   "parent": 1,
+   "typ": "lang",
+   "target": "",
+   "pos": 4,
+   "roww": 2,
+   "hidden": 0,
+   "draft": 0,
+   "views": 0,
+   "sys": "lang"
+  },
+  {
+   "id": 8,
+   "parent": 1,
+   "typ": "page",
+   "target": "",
+   "pos": 5,
+   "roww": 2,
+   "hidden": 0,
+   "draft": 0,
+   "views": 50,
+   "sys": ""
+  },
+  {
+   "id": 9,
+   "parent": 1,
+   "typ": "page",
+   "target": "",
+   "pos": 6,
+   "roww": 2,
+   "hidden": 0,
+   "draft": 0,
+   "views": 33,
+   "sys": ""
+  }
+ ],
+ "sqlite_sequence": [
+  {
+   "name": "nodes",
+   "seq": 9
+  },
+  {
+   "name": "tickets",
+   "seq": 5
+  },
+  {
+   "name": "hist",
+   "seq": 6
+  },
+  {
+   "name": "media",
+   "seq": 29
+  }
+ ],
+ "states": [],
+ "sys": [
+  {
+   "k": "langsel",
+   "lang": "uk",
+   "v": "🇺🇦 <b>EUROTOUR</b>\n\nОберіть мову / Выберите язык\nChoose language / Wybierz język"
+  },
+  {
+   "k": "langsel",
+   "lang": "ru",
+   "v": "🇺🇦 <b>EUROTOUR</b>\n\nОберіть мову / Выберите язык\nChoose language / Wybierz język"
+  },
+  {
+   "k": "langsel",
+   "lang": "pl",
+   "v": "🇺🇦 <b>EUROTOUR</b>\n\nОберіть мову / Выберите язык\nChoose language / Wybierz język"
+  },
+  {
+   "k": "langsel",
+   "lang": "en",
+   "v": "🇺🇦 <b>EUROTOUR</b>\n\nОберіть мову / Выберите язык\nChoose language / Wybierz język"
+  },
+  {
+   "k": "ask",
+   "lang": "uk",
+   "v": "✍️ Напишіть ваше повідомлення одним повідомленням.\nМожна текст, фото або документ."
+  },
+  {
+   "k": "ask",
+   "lang": "ru",
+   "v": "✍️ Напишите ваше сообщение одним сообщением.\nМожно текст, фото или документ."
+  },
+  {
+   "k": "ask",
+   "lang": "pl",
+   "v": "✍️ Napisz swoją wiadomość w jednej wiadomości.\nMoże być tekst, zdjęcie lub dokument."
+  },
+  {
+   "k": "ask",
+   "lang": "en",
+   "v": "✍️ Send us your message in a single message.\nText, photo or document is fine."
+  },
+  {
+   "k": "sent",
+   "lang": "uk",
+   "v": "✅ <b>Повідомлення надіслано!</b>\nМенеджер відповість вам особисто."
+  },
+  {
+   "k": "sent",
+   "lang": "ru",
+   "v": "✅ <b>Сообщение отправлено!</b>\nМенеджер ответит вам лично."
+  },
+  {
+   "k": "sent",
+   "lang": "pl",
+   "v": "✅ <b>Wiadomość wysłana!</b>\nMenedżer odpowie osobiście."
+  },
+  {
+   "k": "sent",
+   "lang": "en",
+   "v": "✅ <b>Message sent!</b>\nOur manager will reply personally."
+  },
+  {
+   "k": "unknown",
+   "lang": "uk",
+   "v": "Не зовсім зрозумів 🤔 Ось головне меню:"
+  },
+  {
+   "k": "unknown",
+   "lang": "ru",
+   "v": "Не совсем понял 🤔 Вот главное меню:"
+  },
+  {
+   "k": "unknown",
+   "lang": "pl",
+   "v": "Nie rozumiem 🤔 Oto menu główne:"
+  },
+  {
+   "k": "unknown",
+   "lang": "en",
+   "v": "I didn't get that 🤔 Here is the main menu:"
+  },
+  {
+   "k": "blocked",
+   "lang": "uk",
+   "v": "🚫 Ваш доступ до бота обмежено."
+  },
+  {
+   "k": "blocked",
+   "lang": "ru",
+   "v": "🚫 Ваш доступ к боту ограничен."
+  },
+  {
+   "k": "blocked",
+   "lang": "pl",
+   "v": "🚫 Twój dostęp jest ograniczony."
+  },
+  {
+   "k": "blocked",
+   "lang": "en",
+   "v": "🚫 Your access is restricted."
+  },
+  {
+   "k": "spam",
+   "lang": "uk",
+   "v": "🐌 Зачекайте трохи перед наступним повідомленням."
+  },
+  {
+   "k": "spam",
+   "lang": "ru",
+   "v": "🐌 Подождите немного перед следующим сообщением."
+  },
+  {
+   "k": "spam",
+   "lang": "pl",
+   "v": "🐌 Poczekaj chwilę przed kolejną wiadomością."
+  },
+  {
+   "k": "spam",
+   "lang": "en",
+   "v": "🐌 Please wait a moment before sending again."
+  },
+  {
+   "k": "maint",
+   "lang": "uk",
+   "v": "🔧 Ведуться технічні роботи. Спробуйте трохи пізніше."
+  },
+  {
+   "k": "maint",
+   "lang": "ru",
+   "v": "🔧 Ведутся технические работы. Попробуйте позже."
+  },
+  {
+   "k": "maint",
+   "lang": "pl",
+   "v": "🔧 Trwają prace techniczne. Spróbuj później."
+  },
+  {
+   "k": "maint",
+   "lang": "en",
+   "v": "🔧 Maintenance in progress. Please try later."
+  },
+  {
+   "k": "answer",
+   "lang": "uk",
+   "v": "💬 <b>Відповідь від менеджера:</b>"
+  },
+  {
+   "k": "answer",
+   "lang": "ru",
+   "v": "💬 <b>Ответ от менеджера:</b>"
+  },
+  {
+   "k": "answer",
+   "lang": "pl",
+   "v": "💬 <b>Odpowiedź od menedżera:</b>"
+  },
+  {
+   "k": "answer",
+   "lang": "en",
+   "v": "💬 <b>Reply from our manager:</b>"
+  },
+  {
+   "k": "back",
+   "lang": "uk",
+   "v": "⬅️ Назад"
+  },
+  {
+   "k": "back",
+   "lang": "ru",
+   "v": "⬅️ Назад"
+  },
+  {
+   "k": "back",
+   "lang": "pl",
+   "v": "⬅️ Wstecz"
+  },
+  {
+   "k": "back",
+   "lang": "en",
+   "v": "⬅️ Back"
+  },
+  {
+   "k": "home",
+   "lang": "uk",
+   "v": "🏠 Головне меню"
+  },
+  {
+   "k": "home",
+   "lang": "ru",
+   "v": "🏠 Главное меню"
+  },
+  {
+   "k": "home",
+   "lang": "pl",
+   "v": "🏠 Menu główne"
+  },
+  {
+   "k": "home",
+   "lang": "en",
+   "v": "🏠 Main menu"
+  },
+  {
+   "k": "cancel",
+   "lang": "uk",
+   "v": "❌ Скасувати"
+  },
+  {
+   "k": "cancel",
+   "lang": "ru",
+   "v": "❌ Отменить"
+  },
+  {
+   "k": "cancel",
+   "lang": "pl",
+   "v": "❌ Anuluj"
+  },
+  {
+   "k": "cancel",
+   "lang": "en",
+   "v": "❌ Cancel"
+  }
+ ],
+ "tickets": [],
+ "tr": [
+  {
+   "node": 1,
+   "lang": "uk",
+   "label": "",
+   "body": "👋 <b>Вітаємо!</b>\n\nEUROTOUR — пасажирські перевезення Україна ⇄ Європа.\nКомфорт, пунктуальність, безпека.\n\nОберіть розділ 👇",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIDAmqQR_xWoxrOZFe9P0WHUPIDjrr6AAI9HmsbxSeASLNXbs0CpOxDAQADAgADeQADPQQ",
+   "machine": 0
+  },
+  {
+   "node": 1,
+   "lang": "ru",
+   "label": "",
+   "body": "👋 <b>Добро пожаловать!</b>\n\nEUROTOUR — пассажирские перевозки Украина ⇄ Европа.\nКомфорт, пунктуальность, безопасность.\n\nВыберите раздел 👇",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIDAmqQR_xWoxrOZFe9P0WHUPIDjrr6AAI9HmsbxSeASLNXbs0CpOxDAQADAgADeQADPQQ",
+   "machine": 0
+  },
+  {
+   "node": 1,
+   "lang": "pl",
+   "label": "",
+   "body": "👋 <b>Witamy!</b>\n\nEUROTOUR — przewozy pasażerskie Ukraina ⇄ Europa.\nKomfort, punktualność, bezpieczeństwo.\n\nWybierz sekcję 👇",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIDAmqQR_xWoxrOZFe9P0WHUPIDjrr6AAI9HmsbxSeASLNXbs0CpOxDAQADAgADeQADPQQ",
+   "machine": 0
+  },
+  {
+   "node": 1,
+   "lang": "en",
+   "label": "",
+   "body": "👋 <b>Welcome!</b>\n\nEUROTOUR — passenger transport Ukraine ⇄ Europe.\nComfort, punctuality, safety.\n\nChoose a section 👇",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIDAmqQR_xWoxrOZFe9P0WHUPIDjrr6AAI9HmsbxSeASLNXbs0CpOxDAQADAgADeQADPQQ",
+   "machine": 0
+  },
+  {
+   "node": 2,
+   "lang": "uk",
+   "label": "ℹ️ Про нас",
+   "body": "<b>Ми - EUROTOUR🇪🇺</b>\n\nКомфортні, безпечні та надійні поїздки по Україні та Європі для тих, хто цінує якісний сервіс 🤝\n\n🇺🇦 Перевезення по Україні\n🇪🇺 Поїздки країнами Європи\n🌍 Україна ↔ Європа\n🚐 Комфортні авто та професійні водії\n🕐 Подача авто 24/7\n💼 Індивідуальний VIP-сервіс\n\nЗаберемо вас у потрібному місці та доставимо прямо до пункту призначення 🛣️",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIEHWqQS_z3_oQDHt4f1dK-uHkCrgyuAAJQHmsbxSeASNqfr2hqmFNmAQADAgADeQADPQQ",
+   "machine": 0
+  },
+  {
+   "node": 2,
+   "lang": "ru",
+   "label": "ℹ️ О нас",
+   "body": "<b>Мы - EUROTOUR🇪🇺</b>\n\nКомфортные, безопасные и надежные поездки по Украине и Европе для тех, кто ценит качественный сервис 🤝\n\n🇺🇦 Перевозки по Украине\n🇪🇺 Поездки по странам Европы\n🌍 Украина ↔ Европа\n🚐 Комфортные авто и профессиональные водители\n🕐 Подача авто 24/7\n💼 Индивидуальный VIP-сервис\n\nЗаберем вас в нужном месте и доставим прямо в пункт назначения 🛣️",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIEHWqQS_z3_oQDHt4f1dK-uHkCrgyuAAJQHmsbxSeASNqfr2hqmFNmAQADAgADeQADPQQ",
+   "machine": 1
+  },
+  {
+   "node": 2,
+   "lang": "pl",
+   "label": "ℹ️ O nas",
+   "body": "<b>Jesteśmy EUROTOUR🇪🇺</b>\n\nWygodne, bezpieczne i niezawodne wyjazdy na Ukrainę i Europę dla tych, którzy cenią sobie jakość obsługi 🤝\n\n🇺🇦 Transport po Ukrainie\n🇪🇺Wyjazdy do krajów europejskich\n🌍 Ukraina ↔ Europa\n🚐 Komfortowe samochody i profesjonalni kierowcy\n🕐Dostawa samochodów 24/7\n💼 Indywidualna obsługa VIP\n\nOdbierzemy Cię we właściwe miejsce i dostarczymy bezpośrednio pod wskazany adres 🛣️",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIEHWqQS_z3_oQDHt4f1dK-uHkCrgyuAAJQHmsbxSeASNqfr2hqmFNmAQADAgADeQADPQQ",
+   "machine": 1
+  },
+  {
+   "node": 2,
+   "lang": "en",
+   "label": "ℹ️ About us",
+   "body": "<b>We are EUROTOUR🇪🇺</b>\n\nComfortable, safe and reliable trips in Ukraine and Europe for those who appreciate quality service 🤝\n\n🇺🇦 Transportation across Ukraine\n🇪🇺 Trips to European countries\n🌍 Ukraine ↔ Europe\n🚐 Comfortable cars and professional drivers\n🕐 Car delivery 24/7\n💼 Individual VIP service\n\nWe will pick you up at the right place and deliver you directly to your destination 🛣️",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIEHWqQS_z3_oQDHt4f1dK-uHkCrgyuAAJQHmsbxSeASNqfr2hqmFNmAQADAgADeQADPQQ",
+   "machine": 1
+  },
+  {
+   "node": 3,
+   "lang": "uk",
+   "label": "📞 Зв'язок",
+   "body": "📞 <b>Связь с нами</b>\n\nМы на связи и ответим лично.\n\n👤 Менеджер:Сергей \n💬 Telegram: @eurotourbus1\n📱 Телефон:+380 68 081 3450\n\n\n👤 Менеджер:Алексей \n💬 Telegram: @pereviznyk001\n📱 Телефон: +380 97 345 20 25",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIDgGqQSdr9t4RJK7NouLFESMBWdxIpAAJIHmsbxSeASKKy0MiuVbACAQADAgADeQADPQQ",
+   "machine": 0
+  },
+  {
+   "node": 3,
+   "lang": "ru",
+   "label": "📞 Связь",
+   "body": "📞 <b>Связь с нами</b>\n\nМы ответим на лично.\n\n👤 Менеджер:Сергей \n💬 Telegram: @eurotourbus1\n📱 Телефон:+380 68 081 3450\n\n\n👤 Менеджер:Алексей \n💬 Telegram: @pereviznyk001\n📱 Телефон: +380 97 345 20 25",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIDgGqQSdr9t4RJK7NouLFESMBWdxIpAAJIHmsbxSeASKKy0MiuVbACAQADAgADeQADPQQ",
+   "machine": 1
+  },
+  {
+   "node": 3,
+   "lang": "pl",
+   "label": "📞 Połączenie",
+   "body": "📞 <b>Skontaktuj się z nami</b>\n\nJesteśmy w kontakcie i odpowiemy osobiście.\n\n👤 Menedżer: Siergiej \n💬 Telegram: @eurotourbus1\n📱 Telefon:+380 68 081 3450\n\n\n👤 Menedżer: Alexey \n💬 Telegram: @pereviznyk001\n📱 Telefon: +380 97 345 20 25",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIDgGqQSdr9t4RJK7NouLFESMBWdxIpAAJIHmsbxSeASKKy0MiuVbACAQADAgADeQADPQQ",
+   "machine": 1
+  },
+  {
+   "node": 3,
+   "lang": "en",
+   "label": "📞 Connection",
+   "body": "📞 <b>Contact us</b>\n\nWe are in touch and will answer personally.\n\n👤 Manager: Sergey \n💬 Telegram: @eurotourbus1\n📱 Phone:+380 68 081 3450\n\n\n👤 Manager: Alexey \n💬 Telegram: @pereviznyk001\n📱 Phone: +380 97 345 20 25",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIDgGqQSdr9t4RJK7NouLFESMBWdxIpAAJIHmsbxSeASKKy0MiuVbACAQADAgADeQADPQQ",
+   "machine": 1
+  },
+  {
+   "node": 4,
+   "lang": "uk",
+   "label": "✍️ Написати зараз",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 4,
+   "lang": "ru",
+   "label": "✍️ Написать сейчас",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 4,
+   "lang": "pl",
+   "label": "✍️ Napisz teraz",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 4,
+   "lang": "en",
+   "label": "✍️ Write to us now",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 5,
+   "lang": "uk",
+   "label": "🌐 Сайт",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 5,
+   "lang": "ru",
+   "label": "🌐 Сайт",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 5,
+   "lang": "pl",
+   "label": "🌐 Strona",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 5,
+   "lang": "en",
+   "label": "🌐 Site",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 6,
+   "lang": "uk",
+   "label": "📢 Канал",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 6,
+   "lang": "ru",
+   "label": "📢 Канал",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 6,
+   "lang": "pl",
+   "label": "📢 Kanał",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 6,
+   "lang": "en",
+   "label": "📢 Channel",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 7,
+   "lang": "uk",
+   "label": "🌍 Мова",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 7,
+   "lang": "ru",
+   "label": "🌍 Язык",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 7,
+   "lang": "pl",
+   "label": "🌍 Język",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 7,
+   "lang": "en",
+   "label": "🌍 Language",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 8,
+   "lang": "uk",
+   "label": "💙Відгуки",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 8,
+   "lang": "ru",
+   "label": "💙Отзывы",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 0
+  },
+  {
+   "node": 8,
+   "lang": "pl",
+   "label": "💙Recenzje",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 8,
+   "lang": "en",
+   "label": "💙Reviews",
+   "body": "",
+   "mtype": "",
+   "mid": "",
+   "machine": 1
+  },
+  {
+   "node": 9,
+   "lang": "uk",
+   "label": "❗️Центр інформації",
+   "body": "<b>НАВІГАТОР ДЛЯ НАШИХ ПАСАЖИРІВ</b>\n\n<a href=\"https://t.me/c/1675777468/67\">ХТО МИ</a><i>?</i> - коротке знайомство з нашою компанією \n\nЗвʼязок @pereviznyk001 \n\n|<i> </i><a href=\"https://t.me/c/1675777468/27\">САЛОН 01</a> |<a href=\"https://t.me/c/1675777468/34\">САЛОН 02</a> | <a href=\"https://t.me/c/1675777468/38\">САЛОН 03</a><i> \\ </i><a href=\"https://t.me/c/1675777468/24\">САЛОН 04</a> | <a href=\"https://t.me/c/1675777468/52\">САЛОН 05</a> |\nТИП САЛОНУ: КОМФОРТ КЛАС - екскурс по нашим салонам. Інформація про наші послуги, що в них входить \n\n <a href=\"https://t.me/c/1675777468/64\">САЛОН 01</a>  <a href=\"https://t.me/c/1675777468/34\">САЛОН 02</a> \nТИП САЛОНУ: ЛЮКС КЛАС\n\n<a href=\"https://t.me/c/1675777468/56\">НЕОБХІДНІ ДОКУМЕНТИ</a> - довідка про необхідні документи при перевезенні для дорослих та дітей\n\n<a href=\"https://t.me/c/1675777468/57\">ДЛЯ МАЛЕНЬКИХ ДІТЕЙ</a> - поради, які допоможуть уникнути проблем, під час поїздки та провести її з комфортом \n\n<a href=\"https://t.me/c/1675777468/61\">Правила перевезення</a> - ознайомтесь з правилами перевезення що можна перевозити що ні!",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIEiWqQT1hEkV8RTzrEU0a8MbaJW9kKAAJmHmsbxSeASAF3VYabl8LnAQADAgADeQADPQQ",
+   "machine": 0
+  },
+  {
+   "node": 9,
+   "lang": "ru",
+   "label": "❗️Центр информации",
+   "body": "<b>НАВИГАТОР ДЛЯ НАШИХ ПАССАЖИРОВ</b>\n\n<a href=\"https://t.me/c/1675777468/67\">КТО МЫ</a><i>?</i> - короткое знакомство с нашей компанией \n\nСвязь @pereviznyk001 \n\n|<i> </i><a href=\"https://t.me/c/1675777468/27\">САЛОН 01</a> |<a href=\"https://t.me/c/1675777468/34\">САЛОН 02</a> | <a href=\"https://t.me/c/1675777468/38\">САЛОН 03</a><i> \\ </i><a href=\"https://t.me/c/1675777468/24\">САЛОН 04</a> | <a href=\"https://t.me/c/1675777468/52\">САЛОН 05</a> |\nТИП САЛОНА: КОМФОРТ КЛАСС – экскурс по нашим салонам. Информация о наших входящих в них услугах \n\n <a href=\"https://t.me/c/1675777468/64\">САЛОН 01</a> <a href=\"https://t.me/c/1675777468/34\">САЛОН 02</a> \nТИП САЛОНА: ЛЮКС КЛАСС\n\n<a href=\"https://t.me/c/1675777468/56\">НЕОБХОДИМЫЕ ДОКУМЕНТЫ</a> - справка о необходимых документах при перевозке для взрослых и детей\n\n<a href=\"https://t.me/c/1675777468/57\">ДЛЯ МАЛЕНЬКИХ ДЕТЕЙ</a> - советы, которые помогут избежать проблем во время поездки и провести ее с комфортом \n\n<a href=\"https://t.me/c/1675777468/61\">Правила перевозки</a> - ознакомьтесь с правилами перевозки, которые можно перевозить что нет!",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIEiWqQT1hEkV8RTzrEU0a8MbaJW9kKAAJmHmsbxSeASAF3VYabl8LnAQADAgADeQADPQQ",
+   "machine": 1
+  },
+  {
+   "node": 9,
+   "lang": "pl",
+   "label": "❗️Centrum informacyjne",
+   "body": "<b>NAWIGATOR DLA NASZYCH PASAŻERÓW</b>\n\n<a href=\"https://t.me/c/1675777468/67\">KIM JESTEŚMY</a><i>?</i> - krótkie wprowadzenie do naszej firmy \n\nKomunikacja @pereviznyk001 \n\n|<i> </i><a href=\"https://t.me/c/1675777468/27\">CALOON 01</a> |<a href=\"https://t.me/c/1675777468/34\">CALOON 02</a> | <a href=\"https://t.me/c/1675777468/38\">SALON 03</a><i> \\ </i><a href=\"https://t.me/c/1675777468/24\">SALON 04</a> | <a href=\"https://t.me/c/1675777468/52\">SALON 05</a> |\nTYP SALONU: KLASA KOMFORT - zwiedzanie naszych salonów. Informacje na temat naszych usług i ich zakresu \n\n <a href=\"https://t.me/c/1675777468/64\">SALON 01</a> <a href=\"https://t.me/c/1675777468/34\">SALON 02</a> \nTYP KABINY: KLASA LUKSUSOWA\n\n<a href=\"https://t.me/c/1675777468/56\">WYMAGANE DOKUMENTY</a> - informacja o dokumentach niezbędnych do przewozu osób dorosłych i dzieci\n\n<a href=\"https://t.me/c/1675777468/57\">DLA MAŁYCH DZIECI</a> - wskazówki, które pomogą Ci uniknąć problemów w podróży i spędzić ją wygodnie \n\n<a href=\"https://t.me/c/1675777468/61\">Zasady transportu</a> - zapoznaj się z zasadami transportu, co można przewozić, a czego nie!",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIEiWqQT1hEkV8RTzrEU0a8MbaJW9kKAAJmHmsbxSeASAF3VYabl8LnAQADAgADeQADPQQ",
+   "machine": 1
+  },
+  {
+   "node": 9,
+   "lang": "en",
+   "label": "❗️Information center",
+   "body": "<b>NAVIGATOR FOR OUR PASSENGERS</b>\n\n<a href=\"https://t.me/c/1675777468/67\">WHO ARE WE</a><i>?</i> - a brief introduction to our company \n\nCommunication @pereviznyk001 \n\n|<i> </i><a href=\"https://t.me/c/1675777468/27\">CALOON 01</a> |<a href=\"https://t.me/c/1675777468/34\">CALOON 02</a> | <a href=\"https://t.me/c/1675777468/38\">SALON 03</a><i> \\ </i><a href=\"https://t.me/c/1675777468/24\">SALON 04</a> | <a href=\"https://t.me/c/1675777468/52\">SALON 05</a> |\nSALON TYPE: COMFORT CLASS - a tour of our salons. Information about our services and what they include \n\n <a href=\"https://t.me/c/1675777468/64\">SALON 01</a> <a href=\"https://t.me/c/1675777468/34\">SALON 02</a> \nCABIN TYPE: LUXURY CLASS\n\n<a href=\"https://t.me/c/1675777468/56\">REQUIRED DOCUMENTS</a> - information on the necessary documents for transportation for adults and children\n\n<a href=\"https://t.me/c/1675777468/57\">FOR SMALL CHILDREN</a> - tips that will help you avoid problems during the trip and spend it comfortably \n\n<a href=\"https://t.me/c/1675777468/61\">Rules of transportation</a> - familiarize yourself with the rules of transportation, what can be transported and what cannot!",
+   "mtype": "photo",
+   "mid": "AgACAgIAAxkBAAIEiWqQT1hEkV8RTzrEU0a8MbaJW9kKAAJmHmsbxSeASAF3VYabl8LnAQADAgADeQADPQQ",
+   "machine": 1
+  }
+ ],
+ "trash": [],
+ "trcache": [
+  {
+   "h": "d550928dc4e8b7d1e2f8890cb0d1b211",
+   "lang": "ru",
+   "txt": "📞 Связь"
+  },
+  {
+   "h": "85dfb0a4d500dbaababdf8bc7897ef0b",
+   "lang": "ru",
+   "txt": "📞 <b>Связь с нами</b>\n\nМы на связи и ответим лично.\n\n👤 Менеджер:Сергей \n💬 Telegram: @eurotourbus1\n📱 Телефон:+380680813450\n\n\n👤 Менеджер:Алексей \n💬 Telegram: @pereviznyk001\n📱 Телефон: +380 97 345 20 25"
+  },
+  {
+   "h": "d550928dc4e8b7d1e2f8890cb0d1b211",
+   "lang": "pl",
+   "txt": "📞Komunikacja"
+  },
+  {
+   "h": "85dfb0a4d500dbaababdf8bc7897ef0b",
+   "lang": "pl",
+   "txt": "📞 <b>Skontaktuj się z nami</b>\n\nJesteśmy w kontakcie i odpowiemy osobiście.\n\n👤 Menedżer: Siergiej \n💬 Telegram: @eurotourbus1\n📱 Telefon:+380680813450\n\n\n👤 Kierownik: Oleksiy \n💬 Telegram: @pereviznyk001\n📱 Telefon: +380 97 345 20 25"
+  },
+  {
+   "h": "d550928dc4e8b7d1e2f8890cb0d1b211",
+   "lang": "en",
+   "txt": "📞 Communication"
+  },
+  {
+   "h": "85dfb0a4d500dbaababdf8bc7897ef0b",
+   "lang": "en",
+   "txt": "📞 <b>Contact us</b>\n\nWe are in touch and will answer personally.\n\n👤 Manager: Sergey \n💬 Telegram: @eurotourbus1\n📱 Phone:+380680813450\n\n\n👤 Manager: Oleksiy \n💬 Telegram: @pereviznyk001\n📱 Phone: +380 97 345 20 25"
+  },
+  {
+   "h": "b120ec6bdbb314842401f5cdf67bdd97",
+   "lang": "pl",
+   "txt": "Strona"
+  },
+  {
+   "h": "b120ec6bdbb314842401f5cdf67bdd97",
+   "lang": "en",
+   "txt": "Site"
+  },
+  {
+   "h": "c1352c474f5e5c2cf07a1e09e61eb168",
+   "lang": "ru",
+   "txt": "sendmail|Канал"
+  },
+  {
+   "h": "c1352c474f5e5c2cf07a1e09e61eb168",
+   "lang": "pl",
+   "txt": "Kanał"
+  },
+  {
+   "h": "c1352c474f5e5c2cf07a1e09e61eb168",
+   "lang": "en",
+   "txt": "Channel"
+  },
+  {
+   "h": "404324e07c1daa1186d5588de27891c3",
+   "lang": "pl",
+   "txt": "Recenzje"
+  },
+  {
+   "h": "404324e07c1daa1186d5588de27891c3",
+   "lang": "en",
+   "txt": "Reviews"
+  },
+  {
+   "h": "c5ed6be1b1eae80797b87142b80eacf4",
+   "lang": "ru",
+   "txt": "отзывы"
+  },
+  {
+   "h": "c5ed6be1b1eae80797b87142b80eacf4",
+   "lang": "pl",
+   "txt": "recenzje"
+  },
+  {
+   "h": "c5ed6be1b1eae80797b87142b80eacf4",
+   "lang": "en",
+   "txt": "reviews"
+  },
+  {
+   "h": "e1249157dab03ccb0c0a868ff708552e",
+   "lang": "uk",
+   "txt": "Відгуки"
+  },
+  {
+   "h": "6b72238f41873e52815d8c62031d8025",
+   "lang": "ru",
+   "txt": "Яндекс .Навигатор"
+  },
+  {
+   "h": "6b72238f41873e52815d8c62031d8025",
+   "lang": "pl",
+   "txt": "Nawigator"
+  },
+  {
+   "h": "6b72238f41873e52815d8c62031d8025",
+   "lang": "en",
+   "txt": "Navigator"
+  },
+  {
+   "h": "843dd199bbe8f2a3bd38685dedd74acf",
+   "lang": "ru",
+   "txt": "Телефонные номера."
+  },
+  {
+   "h": "843dd199bbe8f2a3bd38685dedd74acf",
+   "lang": "pl",
+   "txt": "Informacja"
+  },
+  {
+   "h": "843dd199bbe8f2a3bd38685dedd74acf",
+   "lang": "en",
+   "txt": "Information"
+  },
+  {
+   "h": "317f1b508cccc0b87b6fb6b026cdf0a8",
+   "lang": "ru",
+   "txt": "Информационный центр"
+  },
+  {
+   "h": "317f1b508cccc0b87b6fb6b026cdf0a8",
+   "lang": "pl",
+   "txt": "Centrum informacyjne"
+  },
+  {
+   "h": "317f1b508cccc0b87b6fb6b026cdf0a8",
+   "lang": "en",
+   "txt": "Information center"
+  },
+  {
+   "h": "83ac8b220b090397bdbe26995c2ea7fc",
+   "lang": "ru",
+   "txt": "Центр информации"
+  },
+  {
+   "h": "83ac8b220b090397bdbe26995c2ea7fc",
+   "lang": "pl",
+   "txt": "Centrum informacyjne"
+  },
+  {
+   "h": "83ac8b220b090397bdbe26995c2ea7fc",
+   "lang": "en",
+   "txt": "Information center"
+  },
+  {
+   "h": "66e24879d2f70893dde4308091882f82",
+   "lang": "ru",
+   "txt": "<b>НАВИГАТОР ДЛЯ НАШИХ ПАССАЖИРОВ</b>\n\n<a href=\"https://t.me/c/1675777468/67\">КТО МЫ</a><i>?</i> - короткое знакомство с нашей компанией \n\nСвязь @pereviznyk001 \n\n|<i> </i><a href=\"https://t.me/c/1675777468/27\">САЛОН 01</a> |<a href=\"https://t.me/c/1675777468/34\">САЛОН 02</a> | <a href=\"https://t.me/c/1675777468/38\">САЛОН 03</a><i> \\ </i><a href=\"https://t.me/c/1675777468/24\">САЛОН 04</a> | <a href=\"https://t.me/c/1675777468/52\">САЛОН 05</a> |\nТИП САЛОНА: КОМФОРТ КЛАСС – экскурс по нашим салонам. Информация о наших входящих в них услугах \n\n <a href=\"https://t.me/c/1675777468/64\">САЛОН 01</a> <a href=\"https://t.me/c/1675777468/34\">САЛОН 02</a> \nТИП САЛОНА: ЛЮКС КЛАСС\n\n<a href=\"https://t.me/c/1675777468/56\">НЕОБХОДИМЫЕ ДОКУМЕНТЫ</a> - справка о необходимых документах при перевозке для взрослых и детей\n\n<a href=\"https://t.me/c/1675777468/57\">ДЛЯ МАЛЕНЬКИХ ДЕТЕЙ</a> - советы, которые помогут избежать проблем во время поездки и провести ее с комфортом \n\n<a href=\"https://t.me/c/1675777468/61\">Правила перевозки</a> - ознакомьтесь с правилами перевозки, которые можно перевозить что нет!"
+  },
+  {
+   "h": "66e24879d2f70893dde4308091882f82",
+   "lang": "pl",
+   "txt": "<b>NAWIGATOR DLA NASZYCH PASAŻERÓW</b>\n\n<a href=\"https://t.me/c/1675777468/67\">KIM JESTEŚMY</a><i>?</i> - krótkie wprowadzenie do naszej firmy \n\nKomunikacja @pereviznyk001 \n\n|<i> </i><a href=\"https://t.me/c/1675777468/27\">CALOON 01</a> |<a href=\"https://t.me/c/1675777468/34\">CALOON 02</a> | <a href=\"https://t.me/c/1675777468/38\">SALON 03</a><i> \\ </i><a href=\"https://t.me/c/1675777468/24\">SALON 04</a> | <a href=\"https://t.me/c/1675777468/52\">SALON 05</a> |\nTYP SALONU: KLASA KOMFORT - zwiedzanie naszych salonów. Informacje na temat naszych usług i ich zakresu \n\n <a href=\"https://t.me/c/1675777468/64\">SALON 01</a> <a href=\"https://t.me/c/1675777468/34\">SALON 02</a> \nTYP KABINY: KLASA LUKSUSOWA\n\n<a href=\"https://t.me/c/1675777468/56\">WYMAGANE DOKUMENTY</a> - informacja o dokumentach niezbędnych do przewozu osób dorosłych i dzieci\n\n<a href=\"https://t.me/c/1675777468/57\">DLA MAŁYCH DZIECI</a> - wskazówki, które pomogą Ci uniknąć problemów w podróży i spędzić ją wygodnie \n\n<a href=\"https://t.me/c/1675777468/61\">Zasady transportu</a> - zapoznaj się z zasadami transportu, co można przewozić, a czego nie!"
+  },
+  {
+   "h": "66e24879d2f70893dde4308091882f82",
+   "lang": "en",
+   "txt": "<b>NAVIGATOR FOR OUR PASSENGERS</b>\n\n<a href=\"https://t.me/c/1675777468/67\">WHO ARE WE</a><i>?</i> - a brief introduction to our company \n\nCommunication @pereviznyk001 \n\n|<i> </i><a href=\"https://t.me/c/1675777468/27\">CALOON 01</a> |<a href=\"https://t.me/c/1675777468/34\">CALOON 02</a> | <a href=\"https://t.me/c/1675777468/38\">SALON 03</a><i> \\ </i><a href=\"https://t.me/c/1675777468/24\">SALON 04</a> | <a href=\"https://t.me/c/1675777468/52\">SALON 05</a> |\nSALON TYPE: COMFORT CLASS - a tour of our salons. Information about our services and what they include \n\n <a href=\"https://t.me/c/1675777468/64\">SALON 01</a> <a href=\"https://t.me/c/1675777468/34\">SALON 02</a> \nCABIN TYPE: LUXURY CLASS\n\n<a href=\"https://t.me/c/1675777468/56\">REQUIRED DOCUMENTS</a> - information on the necessary documents for transportation for adults and children\n\n<a href=\"https://t.me/c/1675777468/57\">FOR SMALL CHILDREN</a> - tips that will help you avoid problems during the trip and spend it comfortably \n\n<a href=\"https://t.me/c/1675777468/61\">Rules of transportation</a> - familiarize yourself with the rules of transportation, what can be transported and what cannot!"
+  },
+  {
+   "h": "c17b82092751821850cbd12d6076c1c4",
+   "lang": "ru",
+   "txt": "ℹ️ О нас"
+  },
+  {
+   "h": "b53af53e712ac209546e69a9780e8163",
+   "lang": "ru",
+   "txt": "Поздравляем 👋\n\n<b>Мы - EUROTOUR</b>\n\nКомфортные, безопасные и надежные поездки по Украине и Европе для тех, кто ценит качественный сервис 🤝\n\n🇺🇦 Перевозки по Украине\n🇪🇺 Поездки по странам Европы\n🌍 Украина ↔ Европа\n🚐 Комфортные авто и профессиональные водители\n🕐 Подача авто 24/7\n💼 Индивидуальный VIP-сервис\n\nЗаберем вас в нужном месте и доставим прямо в пункт назначения 🛣️"
+  },
+  {
+   "h": "c17b82092751821850cbd12d6076c1c4",
+   "lang": "pl",
+   "txt": "ℹ️ O nas"
+  },
+  {
+   "h": "b53af53e712ac209546e69a9780e8163",
+   "lang": "pl",
+   "txt": "Gratulacje 👋\n\n<b>Jesteśmy EUROTOUR</b>\n\nWygodne, bezpieczne i niezawodne wyjazdy na Ukrainę i Europę dla tych, którzy cenią sobie jakość obsługi 🤝\n\n🇺🇦 Transport po Ukrainie\n🇪🇺Wyjazdy do krajów europejskich\n🌍 Ukraina ↔ Europa\n🚐 Komfortowe samochody i profesjonalni kierowcy\n🕐Dostawa samochodów 24/7\n💼 Indywidualna obsługa VIP\n\nOdbierzemy Cię we właściwe miejsce i dostarczymy bezpośrednio pod wskazany adres 🛣️"
+  },
+  {
+   "h": "c17b82092751821850cbd12d6076c1c4",
+   "lang": "en",
+   "txt": "ℹ️ About us"
+  },
+  {
+   "h": "b53af53e712ac209546e69a9780e8163",
+   "lang": "en",
+   "txt": "Congratulations 👋\n\n<b>We are EUROTOUR</b>\n\nComfortable, safe and reliable trips in Ukraine and Europe for those who appreciate quality service 🤝\n\n🇺🇦 Transportation across Ukraine\n🇪🇺 Trips to European countries\n🌍 Ukraine ↔ Europe\n🚐 Comfortable cars and professional drivers\n🕐 Car delivery 24/7\n💼 Individual VIP service\n\nWe will pick you up at the right place and deliver you directly to your destination 🛣️"
+  },
+  {
+   "h": "386e2f80afe0c6fb22ddd7f9833d26eb",
+   "lang": "ru",
+   "txt": "<b>Мы - EUROTOUR🇪🇺</b>\n\nКомфортные, безопасные и надежные поездки по Украине и Европе для тех, кто ценит качественный сервис 🤝\n\n🇺🇦 Перевозки по Украине\n🇪🇺 Поездки по странам Европы\n🌍 Украина ↔ Европа\n🚐 Комфортные авто и профессиональные водители\n🕐 Подача авто 24/7\n💼 Индивидуальный VIP-сервис\n\nЗаберем вас в нужном месте и доставим прямо в пункт назначения 🛣️"
+  },
+  {
+   "h": "386e2f80afe0c6fb22ddd7f9833d26eb",
+   "lang": "pl",
+   "txt": "<b>Jesteśmy EUROTOUR🇪🇺</b>\n\nWygodne, bezpieczne i niezawodne wyjazdy na Ukrainę i Europę dla tych, którzy cenią sobie jakość obsługi 🤝\n\n🇺🇦 Transport po Ukrainie\n🇪🇺Wyjazdy do krajów europejskich\n🌍 Ukraina ↔ Europa\n🚐 Komfortowe samochody i profesjonalni kierowcy\n🕐Dostawa samochodów 24/7\n💼 Indywidualna obsługa VIP\n\nOdbierzemy Cię we właściwe miejsce i dostarczymy bezpośrednio pod wskazany adres 🛣️"
+  },
+  {
+   "h": "386e2f80afe0c6fb22ddd7f9833d26eb",
+   "lang": "en",
+   "txt": "<b>We are EUROTOUR🇪🇺</b>\n\nComfortable, safe and reliable trips in Ukraine and Europe for those who appreciate quality service 🤝\n\n🇺🇦 Transportation across Ukraine\n🇪🇺 Trips to European countries\n🌍 Ukraine ↔ Europe\n🚐 Comfortable cars and professional drivers\n🕐 Car delivery 24/7\n💼 Individual VIP service\n\nWe will pick you up at the right place and deliver you directly to your destination 🛣️"
+  },
+  {
+   "h": "722a95bcfeea1023accfa1f2cd0ea6bf",
+   "lang": "ru",
+   "txt": "Связь"
+  },
+  {
+   "h": "18f0cf351766a4523e08693470a16686",
+   "lang": "ru",
+   "txt": "📞 <b>Связь с нами</b>\n\nМы ответим на лично.\n\n👤 Менеджер:Сергей \n💬 Telegram: @eurotourbus1\n📱 Телефон:+380 68 081 3450\n\n\n👤 Менеджер:Алексей \n💬 Telegram: @pereviznyk001\n📱 Телефон: +380 97 345 20 25"
+  },
+  {
+   "h": "722a95bcfeea1023accfa1f2cd0ea6bf",
+   "lang": "pl",
+   "txt": "Połączenie"
+  },
+  {
+   "h": "18f0cf351766a4523e08693470a16686",
+   "lang": "pl",
+   "txt": "📞 <b>Skontaktuj się z nami</b>\n\nJesteśmy w kontakcie i odpowiemy osobiście.\n\n👤 Menedżer: Siergiej \n💬 Telegram: @eurotourbus1\n📱 Telefon:+380 68 081 3450\n\n\n👤 Menedżer: Alexey \n💬 Telegram: @pereviznyk001\n📱 Telefon: +380 97 345 20 25"
+  },
+  {
+   "h": "722a95bcfeea1023accfa1f2cd0ea6bf",
+   "lang": "en",
+   "txt": "Connection"
+  },
+  {
+   "h": "18f0cf351766a4523e08693470a16686",
+   "lang": "en",
+   "txt": "📞 <b>Contact us</b>\n\nWe are in touch and will answer personally.\n\n👤 Manager: Sergey \n💬 Telegram: @eurotourbus1\n📱 Phone:+380 68 081 3450\n\n\n👤 Manager: Alexey \n💬 Telegram: @pereviznyk001\n📱 Phone: +380 97 345 20 25"
+  }
+ ],
+ "users": [
+  {
+   "id": 463639615,
+   "uname": "yatebyalyublyuu",
+   "name": "Iryna Petrova",
+   "lang": "uk",
+   "created": 1787859191,
+   "seen": 1787859191,
+   "banned": 0,
+   "msgs": 0,
+   "lset": 1
+  },
+  {
+   "id": 628218799,
+   "uname": "Tatiana_Kyryichuk",
+   "name": "Tatiana Kyryichuk",
+   "lang": "uk",
+   "created": 1787845615,
+   "seen": 1787845635,
+   "banned": 0,
+   "msgs": 0,
+   "lset": 1
+  },
+  {
+   "id": 7906546417,
+   "uname": "pereviznyk_support",
+   "name": "Дмитро Перевізник",
+   "lang": "uk",
+   "created": 1787832266,
+   "seen": 1787861054,
+   "banned": 0,
+   "msgs": 2,
+   "lset": 1
+  },
+  {
+   "id": 8209458446,
+   "uname": "PaceHoz",
+   "name": "𝒫𝒶𝓈𝒽𝒶",
+   "lang": "ru",
+   "created": 1787833867,
+   "seen": 1787853280,
+   "banned": 0,
+   "msgs": 1,
+   "lset": 1
+  },
+  {
+   "id": 8624150203,
+   "uname": "Anastasia10182",
+   "name": "Анастасия Филипова",
+   "lang": "uk",
+   "created": 1787845578,
+   "seen": 1787845578,
+   "banned": 0,
+   "msgs": 1,
+   "lset": 0
+  },
+  {
+   "id": 8871326698,
+   "uname": "pereviznyk001",
+   "name": "Олексій Перевізник",
+   "lang": "ru",
+   "created": 1787832386,
+   "seen": 1787840392,
+   "banned": 0,
+   "msgs": 1,
+   "lset": 1
+  }
+ ]
+}
