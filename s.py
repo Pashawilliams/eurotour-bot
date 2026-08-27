@@ -36,7 +36,7 @@ EUROTOUR Support Bot  ·  aiogram 3  ·  ОДИН ФАЙЛ, готовий до 
 """
 from __future__ import annotations
 
-import asyncio, csv, html, io, json, logging, os, signal, sys, time
+import asyncio, csv, hashlib, html, io, json, logging, os, re, signal, sys, time
 from contextlib import suppress
 from typing import Any, Optional, Sequence
 
@@ -209,7 +209,9 @@ CREATE TABLE IF NOT EXISTS nodes(
   target TEXT DEFAULT '', pos INTEGER DEFAULT 0, roww INTEGER DEFAULT 2,
   hidden INTEGER DEFAULT 0, draft INTEGER DEFAULT 0, views INTEGER DEFAULT 0, sys TEXT DEFAULT '');
 CREATE TABLE IF NOT EXISTS tr(node INTEGER, lang TEXT, label TEXT DEFAULT '', body TEXT DEFAULT '',
-  mtype TEXT DEFAULT '', mid TEXT DEFAULT '', PRIMARY KEY(node,lang));
+  mtype TEXT DEFAULT '', mid TEXT DEFAULT '', machine INTEGER DEFAULT 0, PRIMARY KEY(node,lang));
+-- кеш перекладів, щоб не смикати мережу двічі за той самий текст
+CREATE TABLE IF NOT EXISTS trcache(h TEXT, lang TEXT, txt TEXT, PRIMARY KEY(h,lang));
 CREATE TABLE IF NOT EXISTS sys(k TEXT, lang TEXT, v TEXT, PRIMARY KEY(k,lang));
 CREATE TABLE IF NOT EXISTS cfg(k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, uname TEXT, name TEXT, lang TEXT DEFAULT 'uk',
@@ -253,7 +255,8 @@ SYS_DEF = {
     "cancel": {"uk": "❌ Скасувати", "ru": "❌ Отменить", "pl": "❌ Anuluj", "en": "❌ Cancel"},
 }
 CFG_DEF = {"chat_id": "", "notify": "1", "confirm": "1", "files": "1", "spam": "20",
-           "maint": "0", "backbtn": "1", "deflang": "uk", "langs": "uk,ru,pl,en"}
+           "maint": "0", "backbtn": "1", "deflang": "uk", "langs": "uk,ru,pl,en",
+           "autotr": "1"}          # автопереклад правок на інші мови
 
 GREET = {"uk": "👋 <b>Вітаємо!</b>\n\nEUROTOUR — пасажирські перевезення Україна ⇄ Європа.\nКомфорт, пунктуальність, безпека.\n\nОберіть розділ 👇",
          "ru": "👋 <b>Добро пожаловать!</b>\n\nEUROTOUR — пассажирские перевозки Украина ⇄ Европа.\nКомфорт, пунктуальность, безопасность.\n\nВыберите раздел 👇",
@@ -399,6 +402,116 @@ async def init_db() -> None:
                 for l, lab in SEED_FORM.items():
                     await db.execute("INSERT OR IGNORE INTO tr(node,lang,label) VALUES(?,?,?)", (fid, l, lab))
                 await db.commit()
+
+
+# ═══════════════════ АВТОПЕРЕКЛАД ═══════════════════
+# Адмін пише текст однією мовою — бот сам перекладає на інші.
+# Ручні переклади ніколи не перезаписуються (machine=0 — недоторканий).
+
+_TR_LOCK = asyncio.Lock()
+
+
+def _protect(text: str) -> tuple[str, dict]:
+    """Ховає HTML-теги й посилання, щоб перекладач їх не зіпсував."""
+    keep: dict = {}
+
+    def sub(m):
+        i = f"\ue000{len(keep)}\ue001"        # службовий символ, перекладач його не чіпає
+        keep[i] = m.group(0)
+        return i
+
+    out = re.sub(r"<[^>]+>|https?://\S+|@[\w_]{3,}|\+?\d[\d\s()\-]{6,}", sub, text)
+    return out, keep
+
+
+def _restore(text: str, keep: dict) -> str:
+    for i, v in keep.items():
+        text = text.replace(i, v)
+    # перекладачі іноді ламають службові символи
+    return re.sub(r"\ue000\s*(\d+)\s*\ue001", lambda m: keep.get(f"\ue000{m.group(1)}\ue001", ""), text)
+
+
+def _tr_sync(text: str, to: str, frm: str) -> str:
+    """Синхронний переклад: пробуємо кілька безкоштовних сервісів по черзі."""
+    import urllib.parse
+    import urllib.request
+    UA = {"User-Agent": "Mozilla/5.0"}
+
+    def gtx():
+        q = urllib.parse.urlencode({"client": "dict-chrome-ex", "sl": frm, "tl": to, "q": text})
+        r = urllib.request.Request("https://clients5.google.com/translate_a/t?" + q, headers=UA)
+        d = json.loads(urllib.request.urlopen(r, timeout=20).read().decode())
+        if isinstance(d, list):
+            return "".join(x if isinstance(x, str) else x[0] for x in d)
+        return str(d)
+
+    def gtx2():
+        q = urllib.parse.urlencode({"client": "gtx", "sl": frm, "tl": to, "dt": "t", "q": text})
+        r = urllib.request.Request("https://translate.googleapis.com/translate_a/single?" + q, headers=UA)
+        d = json.loads(urllib.request.urlopen(r, timeout=20).read().decode())
+        return "".join(p[0] for p in d[0] if p[0])
+
+    def mymemory():
+        q = urllib.parse.urlencode({"q": text, "langpair": f"{frm}|{to}"})
+        r = urllib.request.Request("https://api.mymemory.translated.net/get?" + q, headers=UA)
+        d = json.loads(urllib.request.urlopen(r, timeout=20).read().decode())
+        return d["responseData"]["translatedText"]
+
+    for fn in (gtx, gtx2, mymemory):
+        with suppress(Exception):
+            res = (fn() or "").strip()
+            if res and res.lower() != text.lower():
+                return res
+    return ""
+
+
+async def translate(text: str, to: str, frm: str) -> str:
+    """Переклад із кешем. Порожній рядок = не вдалося (тоді текст не чіпаємо)."""
+    text = (text or "").strip()
+    if not text or to == frm:
+        return ""
+    h = hashlib.md5(f"{frm}|{text}".encode()).hexdigest()
+    row = await q1("SELECT txt FROM trcache WHERE h=? AND lang=?", h, to)
+    if row:
+        return row["txt"]
+    safe, keep = _protect(text)
+    async with _TR_LOCK:                       # не бомбимо сервіс паралельними запитами
+        res = await asyncio.get_running_loop().run_in_executor(None, _tr_sync, safe, to, frm)
+    if not res:
+        return ""
+    res = _restore(res, keep)
+    with suppress(Exception):
+        await ex("INSERT OR REPLACE INTO trcache(h,lang,txt) VALUES(?,?,?)", h, to, res)
+    return res
+
+
+async def autotranslate_node(nid: int, src_lang: str) -> int:
+    """Розкидає текст вузла на всі інші мови. Повертає кількість перекладених."""
+    if CFG.get("autotr", "1") != "1":
+        return 0
+    src = await q1("SELECT label,body FROM tr WHERE node=? AND lang=?", nid, src_lang)
+    if not src:
+        return 0
+    done = 0
+    for lang in langs_on():
+        if lang == src_lang:
+            continue
+        cur = await q1("SELECT label,body,machine FROM tr WHERE node=? AND lang=?", nid, lang)
+        # не чіпаємо те, що адмін переклав руками
+        if cur and not cur["machine"] and (cur["label"] or cur["body"]):
+            continue
+        lab = await translate(src["label"], lang, src_lang) if src["label"] else ""
+        bod = await translate(src["body"], lang, src_lang) if src["body"] else ""
+        if not lab and not bod:
+            continue
+        await ex("INSERT INTO tr(node,lang,label,body,machine) VALUES(?,?,?,?,1) "
+                 "ON CONFLICT(node,lang) DO UPDATE SET label=?,body=?,machine=1",
+                 nid, lang, lab or (cur["label"] if cur else ""), bod or (cur["body"] if cur else ""),
+                 lab or (cur["label"] if cur else ""), bod or (cur["body"] if cur else ""))
+        done += 1
+    if done:
+        log.info("Автопереклад вузла %s з %s → %s мов", nid, src_lang, done)
+    return done
 
 
 async def setcfg(k: str, v: str) -> None:
@@ -971,8 +1084,11 @@ async def save_body(nid: int, lang: str, body: str) -> None:
         await ex("DELETE FROM hist WHERE node=? AND lang=? AND id NOT IN "
                  "(SELECT id FROM hist WHERE node=? AND lang=? ORDER BY id DESC LIMIT ?)",
                  nid, lang, nid, lang, HIST_KEEP)
-    await ex("INSERT INTO tr(node,lang,body) VALUES(?,?,?) "
-             "ON CONFLICT(node,lang) DO UPDATE SET body=?", nid, lang, body, body)
+    await ex("INSERT INTO tr(node,lang,body,machine) VALUES(?,?,?,0) "
+             "ON CONFLICT(node,lang) DO UPDATE SET body=?,machine=0", nid, lang, body, body)
+    # цей текст написав адмін — розкидаємо переклад на інші мови у фоні
+    with suppress(RuntimeError):
+        asyncio.get_running_loop().create_task(autotranslate_node(nid, lang))
 
 
 async def del_subtree(nid: int) -> None:
@@ -1099,11 +1215,13 @@ async def settings_view(ev, uid: int) -> None:
            f"📎 Приймати файли: {on('files')}\n"
            f"⬅️ Кнопка «Назад»: {on('backbtn')}\n"
            f"🐌 Антиспам: {CFG.get('spam','20')} сек\n"
-           f"🔧 Технічний режим: {on('maint','0')}")
+           f"🔧 Технічний режим: {on('maint','0')}\n"
+           f"🌐 Автопереклад правок: {on('autotr')}")
     rows = [[B("📥 Змінити чат", "p:s:chat"), B("🧪 Тест", "p:s:test")],
             [B("🔔 Дублювання", "p:s:notify"), B("✅ Підтвердження", "p:s:confirm")],
             [B("📎 Файли", "p:s:files"), B("⬅️ Кнопка «Назад»", "p:s:backbtn")],
             [B("🐌 Антиспам", "p:s:spam"), B("🔧 Техрежим", "p:s:maint")],
+            [B("🌐 Автопереклад", "p:s:autotr")],
             BOTTOM("p:home")]
     await render(ev, txt, kb(rows))
 
@@ -1302,8 +1420,11 @@ async def admin_input(m: Message, st: dict) -> None:
         if not lab:
             await m.answer("⚠️ Надішліть текст підпису."); return
         warn = "\n⚠️ Довгий підпис — на вузьких екранах обріжеться." if len(lab) > 24 else ""
-        await ex("INSERT INTO tr(node,lang,label) VALUES(?,?,?) "
-                 "ON CONFLICT(node,lang) DO UPDATE SET label=?", st["node"], lang, lab[:64], lab[:64])
+        await ex("INSERT INTO tr(node,lang,label,machine) VALUES(?,?,?,0) "
+                 "ON CONFLICT(node,lang) DO UPDATE SET label=?,machine=0",
+                 st["node"], lang, lab[:64], lab[:64])
+        with suppress(RuntimeError):
+            asyncio.get_running_loop().create_task(autotranslate_node(st["node"], lang))
         ST.pop(uid, None)
         await m.answer(f"✅ Підпис збережено: [ {esc(lab[:64])} ]{warn}")
         await node_editor(m, uid, st["node"]); return
@@ -1902,7 +2023,7 @@ async def panel_cb(c: CallbackQuery) -> None:
     if sec == "s":
         if arg == "menu":
             await settings_view(c, uid); return
-        if arg in ("notify", "confirm", "files", "backbtn", "maint"):
+        if arg in ("notify", "confirm", "files", "backbtn", "maint", "autotr"):
             await setcfg(arg, "0" if CFG.get(arg, "1") == "1" else "1")
             await settings_view(c, uid); return
         if arg == "chat":
