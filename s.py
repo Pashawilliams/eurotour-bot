@@ -418,6 +418,31 @@ async def init_db() -> None:
                                  (nd, mt, mi))
                 log.info("Міграція медіа: розділ %s → спільна галерея", nd)
             await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('mediamig','1')")
+    # Раніше майстер створення кнопки писав ОДИН підпис одразу в усі мови
+    # й позначав його ручним (machine=0), тому автопереклад його не чіпав —
+    # кнопка виглядала однаково в усіх мовах. Знаходимо такі дублі й
+    # позначаємо машинними, щоб автопереклад їх переклав.
+    cur = await db.execute("SELECT v FROM cfg WHERE k='lblmig'")
+    if not await cur.fetchone():
+        with suppress(Exception):
+            deflang = CFG_DEF.get("deflang", "uk")
+            cur = await db.execute(
+                "SELECT node,lang,label FROM tr WHERE machine=0 AND label IS NOT NULL AND label<>''")
+            byn: dict[int, list[tuple[str, str]]] = {}
+            for nd, lg, lb in await cur.fetchall():
+                byn.setdefault(nd, []).append((lg, lb))
+            for nd, items in byn.items():
+                if len(items) < 2:
+                    continue
+                keep: list[str] = []
+                for lg, lb in sorted(items, key=lambda x: (x[0] != deflang, x[0])):
+                    # порівнюємо без емодзі: «💙Отзывы» і «Отзывы» — той самий підпис
+                    if any(_same_label(lb, k) for k in keep):
+                        await db.execute("UPDATE tr SET machine=1 WHERE node=? AND lang=?", (nd, lg))
+                        log.info("Міграція підписів: розділ %s мова %s → на автопереклад", nd, lg)
+                    else:
+                        keep.append(lb)
+            await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('lblmig','1')")
     await db.commit()
     await db.commit()
     log.info("БД: %s (journal=%s)", DB_PATH,
@@ -551,7 +576,7 @@ async def autotranslate_node(nid: int, src_lang: str) -> int:
         # не чіпаємо те, що адмін переклав руками
         if cur and not cur["machine"] and (cur["label"] or cur["body"]):
             continue
-        lab = await translate(src["label"], lang, src_lang) if src["label"] else ""
+        lab = await translate_label(src["label"], lang, src_lang) if src["label"] else ""
         bod = await translate(src["body"], lang, src_lang) if src["body"] else ""
         if not lab and not bod:
             continue
@@ -563,6 +588,79 @@ async def autotranslate_node(nid: int, src_lang: str) -> int:
     if done:
         log.info("Автопереклад вузла %s з %s → %s мов", nid, src_lang, done)
     return done
+
+
+_EMO = re.compile(r"^[\W\d_]+|[\W\d_]+$", re.UNICODE)
+
+
+def _split_emoji(s: str) -> tuple[str, str, str]:
+    """Ділить підпис на «емодзі спереду / слова / емодзі ззаду»."""
+    core = _EMO.sub("", s)
+    if not core:
+        return "", s, ""
+    i = s.find(core)
+    return s[:i], core, s[i + len(core):]
+
+
+def _same_label(a: str, b: str) -> bool:
+    """Порівняння підписів без емодзі та регістру."""
+    return _split_emoji(a or "")[1].casefold() == _split_emoji(b or "")[1].casefold()
+
+
+async def translate_label(label: str, to: str, frm: str) -> str:
+    """Переклад підпису кнопки зі збереженням емодзі.
+
+    Емодзі не віддаємо перекладачу (він їх з'їдає або ламає), а короткі
+    підписи додатково перевіряємо — сервіси іноді повертають сміття
+    на кшталт «sendmail|Канал».
+    """
+    pre, core, post = _split_emoji(label or "")
+    if not core:
+        return ""
+    out = (await translate(core, to, frm) or "").strip()
+    if not out:
+        return ""
+    bad = ("|" in out or "\n" in out or len(out) > max(40, len(core) * 4)
+           or out.casefold() == core.casefold())
+    if bad:
+        return ""
+    return f"{pre}{out}{post}"
+
+
+async def translate_missing() -> int:
+    """Доперекладає підписи та тексти, яких бракує іншими мовами.
+
+    Потрібно після міграції й для кнопок, створених до автоперекладу:
+    без цього кнопка лишалась однаковою в усіх мовах.
+    """
+    if CFG.get("autotr", "1") != "1":
+        return 0
+    deflang = CFG.get("deflang", "uk")
+    on = langs_on()
+    total = 0
+    for n in await qa("SELECT id FROM nodes WHERE typ<>'root' ORDER BY id"):
+        nid = n["id"]
+        rows = {r["lang"]: r for r in await qa("SELECT lang,label,body,machine FROM tr WHERE node=?", nid)}
+        # мова-джерело: ручний підпис адміна, інакше мова за умовчанням
+        src = next((l for l, r in rows.items() if not r["machine"] and (r["label"] or r["body"])), "")
+        if not src:
+            src = deflang if rows.get(deflang) and (rows[deflang]["label"] or rows[deflang]["body"]) else ""
+        if not src:
+            src = next((l for l, r in rows.items() if r["label"] or r["body"]), "")
+        if not src:
+            continue
+        slab = rows[src]["label"] if rows.get(src) else ""
+        need = [l for l in on if l != src and (
+            not rows.get(l)
+            or not (rows[l]["label"] or rows[l]["body"])
+            or (rows[l]["machine"] and slab and _same_label(rows[l]["label"], slab)))]
+        if need:
+            with suppress(Exception):
+                total += await autotranslate_node(nid, src)
+        await asyncio.sleep(0)
+    if total:
+        log.info("Доперекладено підписів/текстів: %s", total)
+    return total
 
 
 async def setcfg(k: str, v: str) -> None:
@@ -1803,13 +1901,24 @@ async def wiz_finish(m: Message, uid: int, st: dict) -> None:
     nid = await ex("INSERT INTO nodes(parent,typ,target,pos,roww,draft) VALUES(?,?,?,?,?,1)",
                    parent, st["typ"], st.get("target", ""), pos, (prow["roww"] if prow else 2))
     lang = el(uid)
+    # Підпис адміна — тільки для його мови (machine=0, недоторканий).
+    # Інші мови створюємо як машинні, щоб автопереклад їх заповнив,
+    # інакше кнопка виглядала б однаково в усіх мовах.
     for l in langs_on():
-        await db.execute("INSERT OR IGNORE INTO tr(node,lang,label,body,mtype,mid) VALUES(?,?,?,?,?,?)",
-                         (nid, l, st["label"], st.get("body", "") if l == lang else "",
-                          st.get("mtype", "") if l == lang else "", st.get("mid", "") if l == lang else ""))
+        own = (l == lang)
+        await db.execute("INSERT OR IGNORE INTO tr(node,lang,label,body,mtype,mid,machine) "
+                         "VALUES(?,?,?,?,?,?,?)",
+                         (nid, l, st["label"] if own else "", st.get("body", "") if own else "",
+                          st.get("mtype", "") if own else "", st.get("mid", "") if own else "",
+                          0 if own else 1))
     await db.commit()
     ST.pop(uid, None)
-    await m.answer(f"✅ Кнопку створено як <b>чернетку</b>.\nПеревірте та натисніть «🚀 Опублікувати».")
+    n = 0
+    with suppress(Exception):
+        n = await autotranslate_node(nid, lang)
+    extra = f"\n🌐 Підпис перекладено на {n} мов." if n else ""
+    await m.answer(f"✅ Кнопку створено як <b>чернетку</b>.{extra}\n"
+                   f"Перевірте та натисніть «🚀 Опублікувати».")
     await node_editor(m, uid, nid)
 
 # ── користувач обрав чат нативним вибором Telegram ──
@@ -2652,6 +2761,8 @@ async def run_bot() -> None:
     guard = asyncio.create_task(watchdog(bot))
     timer = asyncio.create_task(scheduled_restart(RESTART_HOURS))
     saver = asyncio.create_task(autobackup_loop())
+    # доперекласти підписи кнопок, яких бракує іншими мовами (фоном, не блокує старт)
+    filler = asyncio.create_task(translate_missing())
     try:
         poll = asyncio.create_task(dp.start_polling(
             bot,
@@ -2683,7 +2794,7 @@ async def run_bot() -> None:
         await poll                         # підніме виняток, якщо був
     finally:
         logging.getLogger("aiogram.dispatcher").removeHandler(cwatch)
-        for t in (guard, timer, saver):
+        for t in (guard, timer, saver, filler):
             t.cancel()
             with suppress(asyncio.CancelledError):
                 await t
