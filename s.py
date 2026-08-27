@@ -113,7 +113,7 @@ from aiogram.types import (BotCommand, BotCommandScopeChat, BufferedInputFile, C
 # ║                                                                          ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-TOKEN = ""   # ← токен від @BotFather (на GitHub — секрет BOT_TOKEN)
+TOKEN = "8937589241:AAHE4wdkGBSKX_6LfeKsRbJX5xnTkw85-3E"   # ← токен від @BotFather
 
 ADMIN_ID = 7906546417   # ← ваш Telegram ID (тільки він бачить панель)
 

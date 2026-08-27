@@ -10,14 +10,13 @@
 
 ## Запуск на GitHub Actions
 
-1. **Settings → Secrets and variables → Actions → New repository secret**
+**Actions → EUROTOUR bot → Run workflow**
 
-   | Ім'я | Значення |
-   |---|---|
-   | `BOT_TOKEN` | токен від [@BotFather](https://t.me/BotFather) |
-   | `OWNER_ID`  | ваш Telegram ID (`/myid` у боті) |
+Токен уже прописаний у файлі `s.py` (рядок 116) — нічого налаштовувати не треба.
 
-2. **Actions → EUROTOUR bot → Run workflow**
+> ⚠️ Репозиторій публічний, тому токен бачить будь-хто. Якщо бот почне
+> поводитись дивно — візьміть новий токен у [@BotFather](https://t.me/BotFather)
+> (`/revoke` → `/token`) і замініть рядок 116.
 
 Далі бот піднімається сам щогодини, якщо був зупинений.
 
