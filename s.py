@@ -646,12 +646,12 @@ async def cmd_start(m: Message) -> None:
     await show_node(m, 1, m.from_user.id)
 
 
-@user_r.message(Command("myid"))
+@user_r.message(Command("myid"), F.chat.type == "private")
 async def cmd_myid(m: Message) -> None:
     await m.answer(f"🆔 Ваш ID: <code>{m.from_user.id}</code>\n💬 Chat ID: <code>{m.chat.id}</code>")
 
 
-@user_r.callback_query(F.data.startswith("l:"))
+@user_r.callback_query(F.data.startswith("l:"), F.message.chat.type == "private")
 async def cb_lang(c: CallbackQuery) -> None:
     lang = c.data.split(":", 1)[1]
     if lang in langs_on():
@@ -660,21 +660,21 @@ async def cb_lang(c: CallbackQuery) -> None:
     await show_node(c, 1, c.from_user.id)
 
 
-@user_r.callback_query(F.data == "home")
+@user_r.callback_query(F.data == "home", F.message.chat.type == "private")
 async def cb_home(c: CallbackQuery) -> None:
     ST.pop(c.from_user.id, None)
     await c.answer()
     await show_node(c, 1, c.from_user.id)
 
 
-@user_r.callback_query(F.data == "cancel")
+@user_r.callback_query(F.data == "cancel", F.message.chat.type == "private")
 async def cb_cancel(c: CallbackQuery) -> None:
     ST.pop(c.from_user.id, None)
     await c.answer("❌")
     await show_node(c, 1, c.from_user.id)
 
 
-@user_r.callback_query(F.data.startswith("n:"))
+@user_r.callback_query(F.data.startswith("n:"), F.message.chat.type == "private")
 async def cb_node(c: CallbackQuery) -> None:
     uid = c.from_user.id
     try:
@@ -1540,7 +1540,7 @@ async def wiz_finish(m: Message, uid: int, st: dict) -> None:
     await node_editor(m, uid, nid)
 
 # ── користувач обрав чат нативним вибором Telegram ──
-@adm_r.message(F.chat_shared)
+@adm_r.message(F.chat_shared, F.chat.type == "private")
 async def on_chat_shared(m: Message) -> None:
     """Спрацьовує, коли адмін обрав чат кнопкою «Вибрати групу/канал»."""
     uid = m.from_user.id
@@ -1568,7 +1568,7 @@ async def on_chat_shared(m: Message) -> None:
     await settings_view(m, uid)
 
 
-@adm_r.message(F.text == "❌ Скасувати")
+@adm_r.message(F.text == "❌ Скасувати", F.chat.type == "private")
 async def on_pick_cancel(m: Message) -> None:
     if not await is_admin(m.from_user.id):
         return
@@ -1578,7 +1578,7 @@ async def on_pick_cancel(m: Message) -> None:
 
 
 # ════════════════════════════ CALLBACK ПАНЕЛИ ════════════════════════════
-@adm_r.message(Command("panel"))
+@adm_r.message(Command("panel"), F.chat.type == "private")
 async def cmd_panel(m: Message) -> None:
     if not await is_admin(m.from_user.id):
         return                                   # молча, без подсказок
@@ -1586,7 +1586,7 @@ async def cmd_panel(m: Message) -> None:
     await panel_home(m, m.from_user.id)
 
 
-@adm_r.callback_query(F.data.startswith("p:"))
+@adm_r.callback_query(F.data.startswith("p:"), F.message.chat.type == "private")
 async def panel_cb(c: CallbackQuery) -> None:
     uid = c.from_user.id
     if not await is_admin(uid):
@@ -2021,9 +2021,17 @@ async def panel_cb(c: CallbackQuery) -> None:
 
 @adm_r.message(F.chat.type.in_({"group", "supergroup"}))
 async def group_msg(m: Message) -> None:
-    """Ввод админа в рабочем чате (например, ответ клиенту)."""
-    st = ST.get(m.from_user.id) if m.from_user else None
-    if st and await is_admin(m.from_user.id):
+    """У групі бот НЕ показує меню й панель.
+
+    Єдине, що він тут робить, — приймає відповідь менеджера клієнту
+    (коли той натиснув «✍️ Відповісти» під зверненням). Усе інше
+    ігнорується повністю: бот у чаті мовчить.
+    """
+    if not m.from_user:
+        return
+    st = ST.get(m.from_user.id)
+    # реагуємо лише на очікувану відповідь клієнту, і лише від адміна
+    if st and st.get("k") in ("reply", "tag") and await is_admin(m.from_user.id):
         await admin_input(m, st)
 
 # ════════════════════════════ ЗАПУСК ════════════════════════════
