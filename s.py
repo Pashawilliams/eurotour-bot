@@ -116,7 +116,7 @@ from aiogram.types import (BotCommand, BotCommandScopeChat, BufferedInputFile, C
 # ║                                                                          ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-TOKEN = ""   # ← на GitHub береться з секрету BOT_TOKEN (Settings → Secrets)
+TOKEN = ""   # ← на GitHub береться з секрету BOT_TOKEN
 
 ADMIN_ID = 7906546417   # ← ваш Telegram ID (тільки він бачить панель)
 
@@ -1453,9 +1453,48 @@ async def tickets_list(ev, uid: int, status: str, page: int) -> None:
     rows.append([B("🔴 Нові", "p:t:list:new:0"), B("🟡 В роботі", "p:t:list:work:0"),
                  B("✅ Закриті", "p:t:list:closed:0")])
     rows.append([B("🔍 Пошук", "p:t:find"), B("📥 Експорт CSV", "p:t:exp")])
+    if total:
+        rows.append([B("🗑 Вибрати та видалити", f"p:t:pick:{status}:0"),
+                     B(f"🧹 Видалити всі ({total})", f"p:t:delall:{status}")])
     rows.append(BOTTOM("p:home"))
     await render(ev, f"⚙️ Панель › 📨 <b>Звернення</b> — {names.get(status,status)} ({total})\n\n"
                      + ("\n".join(lines) or "Порожньо."), kb(rows))
+
+
+async def tickets_pick(ev, uid: int, status: str, page: int) -> None:
+    """Список звернень з галочками — щоб вибрати конкретні й видалити."""
+    per = 8
+    st = ST.get(uid) or {"k": "pick_t", "ids": [], "status": status}
+    chosen = list(st.get("ids") or [])
+    total = await scalar("SELECT COUNT(*) FROM tickets WHERE status=?", status)
+    rows_db = await qa("SELECT t.*,u.uname,u.name FROM tickets t LEFT JOIN users u ON u.id=t.uid "
+                       "WHERE t.status=? ORDER BY t.id DESC LIMIT ? OFFSET ?", status, per, page * per)
+    names = {"new": "🔴 Нові", "work": "🟡 В роботі", "closed": "✅ Закриті"}
+    lines, btns = [], []
+    for r in rows_db:
+        who = f"@{r['uname']}" if r["uname"] else (r["name"] or str(r["uid"]))
+        mark = "☑️" if r["id"] in chosen else "⬜"
+        lines.append(f"{mark} #{r['id']} {esc(str(who))} · {ts(r['created'])}\n"
+                     f"     💬 {esc((r['body'] or '(медіа)')[:45])}")
+        btns.append(B(f"{mark} #{r['id']}", f"p:t:pk:{r['id']}:{status}:{page}"))
+    rows = grid(btns, 2)
+    nav = []
+    if page > 0:
+        nav.append(B("◀️", f"p:t:pick:{status}:{page-1}"))
+    nav.append(B(f"{page+1}/{max(1,(total+per-1)//per)}", "p:noop"))
+    if (page + 1) * per < total:
+        nav.append(B("▶️", f"p:t:pick:{status}:{page+1}"))
+    rows.append(nav)
+    rows.append([B("☑️ Вибрати всі на сторінці", f"p:t:pkall:{status}:{page}")])
+    if chosen:
+        rows.append([B(f"🗑 Видалити вибрані ({len(chosen)})", "p:t:pkdel")])
+    rows.append([B("🔴 Нові", f"p:t:pick:new:0"), B("🟡 В роботі", f"p:t:pick:work:0"),
+                 B("✅ Закриті", f"p:t:pick:closed:0")])
+    rows.append([B("❌ Вийти з вибору", f"p:t:pkoff:{status}:{page}")])
+    await render(ev, f"🗑 <b>Вибір звернень</b> — {names.get(status,status)} ({total})\n"
+                     f"Обрано: <b>{len(chosen)}</b>\n\n"
+                     + ("\n".join(lines) or "Порожньо.")
+                     + "\n\n<i>Натискайте на номери, щоб позначити.</i>", kb(rows))
 
 
 async def _ticket_card_data(tid: int):
@@ -1479,7 +1518,8 @@ async def _ticket_card_data(tid: int):
     rows = [[B("✍️ Відповісти", f"p:t:r:{tid}")],
             [B("🟡 В роботу", f"p:t:work:{tid}"), B("✅ Закрити", f"p:t:done:{tid}")],
             [B("🏷 Мітка", f"p:t:tag:{tid}"),
-             B("🚫 Розблокувати" if r["banned"] == 1 else "🚫 Заблокувати", f"p:t:ban:{tid}")]]
+             B("🚫 Розблокувати" if r["banned"] == 1 else "🚫 Заблокувати", f"p:t:ban:{tid}")],
+            [B("🗑 Видалити звернення", f"p:t:del:{tid}")]]
     if r["uname"]:
         rows.append([U("💬 Відкрити діалог", f"https://t.me/{r['uname']}")])
     rows.append(BOTTOM(f"p:t:list:{r['status']}:0"))
@@ -1515,7 +1555,8 @@ async def ticket_card(ev, uid: int, tid: int) -> None:
     rows = [[B("✍️ Відповісти", f"p:t:r:{tid}")],
             [B("🟡 В роботу", f"p:t:work:{tid}"), B("✅ Закрити", f"p:t:done:{tid}")],
             [B("🏷 Мітка", f"p:t:tag:{tid}"),
-             B("🚫 Розблокувати" if r["banned"] == 1 else "🚫 Заблокувати", f"p:t:ban:{tid}")]]
+             B("🚫 Розблокувати" if r["banned"] == 1 else "🚫 Заблокувати", f"p:t:ban:{tid}")],
+            [B("🗑 Видалити звернення", f"p:t:del:{tid}")]]
     if r["uname"]:
         rows.append([U("💬 Відкрити діалог", f"https://t.me/{r['uname']}")])
     rows.append(BOTTOM(f"p:t:list:{r['status']}:0"))
@@ -2044,6 +2085,11 @@ async def admin_input(m: Message, st: dict) -> None:
             await m.answer(f"⚠️ Помилка відновлення: {esc(e)}")
         return
 
+    if k == "pick_t":
+        # режим вибору звернень — керується кнопками, текст тут не потрібен
+        await m.answer("ℹ️ Позначайте звернення кнопками вище або натисніть «❌ Вийти з вибору».")
+        return
+
     ST.pop(uid, None)
     await m.answer("Скасовано.")
 
@@ -2428,6 +2474,109 @@ async def panel_cb(c: CallbackQuery) -> None:
         if arg == "find":
             ST[uid] = {"k": "find_t"}
             await c.message.answer("🔍 Надішліть @юзернейм, ім'я, ID або слово з тексту."); return
+        # ── ВИДАЛЕННЯ ЗВЕРНЕНЬ (назавжди, без кошика) ──
+        if arg == "del":                       # крок 1: підтвердження
+            tid = I(arg2)
+            t = await q1("SELECT t.*,u.uname,u.name FROM tickets t "
+                         "LEFT JOIN users u ON u.id=t.uid WHERE t.id=?", tid)
+            if not t:
+                await c.answer("Звернення не знайдено.", show_alert=True)
+                await tickets_list(c, uid, "new", 0); return
+            who = f"@{t['uname']}" if t["uname"] else (t["name"] or t["uid"])
+            await render(c, f"🗑 <b>Видалити звернення #{tid}?</b>\n\n"
+                            f"👤 {esc(str(who))}\n"
+                            f"🕐 {ts(t['created'])}\n"
+                            f"💬 {esc((t['body'] or '(медіа)')[:200])}\n\n"
+                            f"❗️ <b>Видалення НАЗАВЖДИ</b> — відновити буде неможливо.",
+                         kb([[B("🗑 Так, видалити назавжди", f"p:t:delok:{tid}")],
+                             [B("↩️ Скасувати", f"p:t:c:{tid}")]])); return
+        if arg == "delok":                     # крок 2: видаляємо остаточно
+            tid = I(arg2)
+            t = await q1("SELECT status FROM tickets WHERE id=?", tid)
+            if not t:
+                await c.answer("Вже видалено.", show_alert=True)
+                await tickets_list(c, uid, "new", 0); return
+            await ex("DELETE FROM tickets WHERE id=?", tid)
+            log.info("Звернення #%s видалив назавжди %s", tid, uid)
+            await c.answer(f"Звернення #{tid} видалено назавжди")
+            await tickets_list(c, uid, t["status"], 0); return
+        # ── вибір кількох звернень галочками ──
+        if arg == "pick":                      # відкрити режим вибору
+            st = ST.get(uid) or {}
+            if st.get("k") != "pick_t":
+                ST[uid] = {"k": "pick_t", "ids": [], "status": arg2 or "new"}
+            await tickets_pick(c, uid, arg2 or "new", I(arg3)); return
+        if arg == "pk":                        # поставити/зняти галочку
+            st = ST.get(uid) or {}
+            if st.get("k") != "pick_t":
+                st = {"k": "pick_t", "ids": [], "status": arg3 or "new"}
+            ids = list(st.get("ids") or [])
+            tid = I(arg2)
+            if tid in ids:
+                ids.remove(tid)
+            else:
+                ids.append(tid)
+            st["ids"] = ids
+            ST[uid] = st
+            await tickets_pick(c, uid, st.get("status", "new"), I(p[5]) if len(p) > 5 else 0); return
+        if arg == "pkall":                     # виділити всі на сторінці / зняти
+            st = ST.get(uid) or {"k": "pick_t", "ids": [], "status": arg2 or "new"}
+            page = I(arg3)
+            rs = await qa("SELECT id FROM tickets WHERE status=? ORDER BY id DESC LIMIT 8 OFFSET ?",
+                          arg2 or "new", page * 8)
+            cur = [r["id"] for r in rs]
+            ids = list(st.get("ids") or [])
+            if all(i in ids for i in cur) and cur:
+                ids = [i for i in ids if i not in cur]
+            else:
+                ids += [i for i in cur if i not in ids]
+            st.update({"k": "pick_t", "ids": ids, "status": arg2 or "new"})
+            ST[uid] = st
+            await tickets_pick(c, uid, arg2 or "new", page); return
+        if arg == "pkdel":                     # видалити вибрані
+            st = ST.get(uid) or {}
+            ids = [i for i in (st.get("ids") or [])]
+            if not ids:
+                await c.answer("Нічого не вибрано.", show_alert=True); return
+            status = st.get("status", "new")
+            if arg2 != "ok":
+                lines = []
+                for t in await qa(f"SELECT t.id,t.body,u.uname,u.name FROM tickets t "
+                                  f"LEFT JOIN users u ON u.id=t.uid "
+                                  f"WHERE t.id IN ({','.join('?'*len(ids))}) ORDER BY t.id DESC", *ids):
+                    who = f"@{t['uname']}" if t["uname"] else (t["name"] or "")
+                    lines.append(f"• #{t['id']} {esc(str(who))} — {esc((t['body'] or '(медіа)')[:40])}")
+                await render(c, f"🗑 <b>Видалити вибрані звернення?</b>\n\n"
+                                + "\n".join(lines[:20])
+                                + (f"\n… та ще {len(ids)-20}" if len(ids) > 20 else "")
+                                + f"\n\nВсього: <b>{len(ids)}</b>\n\n"
+                                f"❗️ <b>Видалення НАЗАВЖДИ</b> — відновити буде неможливо.",
+                             kb([[B(f"🗑 Так, видалити {len(ids)}", "p:t:pkdel:ok")],
+                                 [B("↩️ Скасувати", f"p:t:pick:{status}:0")]])); return
+            await ex(f"DELETE FROM tickets WHERE id IN ({','.join('?'*len(ids))})", *ids)
+            log.info("Видалено назавжди звернень: %s (адмін %s)", len(ids), uid)
+            ST.pop(uid, None)
+            await c.answer(f"Видалено назавжди: {len(ids)}")
+            await tickets_list(c, uid, status, 0); return
+        if arg == "pkoff":                     # вийти з режиму вибору
+            ST.pop(uid, None)
+            await tickets_list(c, uid, arg2 or "new", I(arg3)); return
+        if arg == "delall":                    # очистити всі за статусом
+            status = arg2 or "closed"
+            n = await scalar("SELECT COUNT(*) FROM tickets WHERE status=?", status)
+            names = {"new": "нові", "work": "в роботі", "closed": "закриті"}
+            if not n:
+                await c.answer("Тут порожньо.", show_alert=True); return
+            if arg3 != "ok":
+                await render(c, f"🧹 <b>Видалити всі {names.get(status,status)} звернення?</b>\n\n"
+                                f"Буде видалено: <b>{n}</b> шт.\n\n"
+                                f"❗️ <b>Видалення НАЗАВЖДИ</b> — відновити буде неможливо.",
+                             kb([[B(f"🧹 Так, видалити {n}", f"p:t:delall:{status}:ok")],
+                                 [B("↩️ Скасувати", f"p:t:list:{status}:0")]])); return
+            await ex("DELETE FROM tickets WHERE status=?", status)
+            log.info("Видалено назавжди %s звернень зі статусом %s (адмін %s)", n, status, uid)
+            await c.answer(f"Видалено назавжди: {n}")
+            await tickets_list(c, uid, status, 0); return
         if arg == "exp":
             rs = await qa("SELECT t.id,t.uid,u.uname,u.name,t.body,t.status,t.tag,t.created "
                           "FROM tickets t LEFT JOIN users u ON u.id=t.uid ORDER BY t.id")
