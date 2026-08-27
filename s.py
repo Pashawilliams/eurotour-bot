@@ -305,11 +305,17 @@ async def init_db() -> None:
     await db.commit()
     for r in await qa("SELECT k,v FROM cfg"):
         CFG[r["k"]] = r["v"]
+    # корінь має існувати завжди
     if not await q1("SELECT id FROM nodes WHERE id=1"):
         await db.execute("INSERT OR IGNORE INTO nodes(id,parent,typ,roww,sys) VALUES(1,0,'root',2,'root')")
-        for l, t in GREET.items():
-            await db.execute("INSERT OR IGNORE INTO tr(node,lang,label,body) VALUES(1,?,'',?)", (l, t))
         await db.commit()
+    # привітання — якщо його немає для якоїсь мови
+    for l, t in GREET.items():
+        await db.execute("INSERT OR IGNORE INTO tr(node,lang,label,body) VALUES(1,?,'',?)", (l, t))
+    await db.commit()
+    # Розділи створюємо, якщо корінь ПОРОЖНІЙ. Раніше перевірявся лише корінь,
+    # тому при частково відновленій базі меню лишалось без кнопок.
+    if not await q1("SELECT id FROM nodes WHERE parent=1 LIMIT 1"):
         for i, (typ, tgt, rw, sysk, trs) in enumerate(SEED):
             nid = await ex("INSERT INTO nodes(parent,typ,target,pos,roww,sys) VALUES(1,?,?,?,?,?)",
                            typ, tgt, i, rw, sysk)
