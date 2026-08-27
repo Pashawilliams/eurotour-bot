@@ -1,9 +1,9 @@
 name: EUROTOUR bot
 
-# РОЗУМНА ЕСТАФЕТА
-# GitHub убиває будь-яке завдання через 6 годин. Тому бот працює 5 год 20 хв,
-# сам коректно зупиняється, зберігає базу і ОДРАЗУ запускає наступний цикл.
-# Пауза між циклами — секунди, а не хвилини: користувач її не помічає.
+# РОЗУМНА ЕСТАФЕТА + ПОСТІЙНЕ ЗБЕРЕЖЕННЯ
+# GitHub убиває завдання через 6 год, тому бот працює 5 год 20 хв і сам
+# запускає наступний цикл. База пишеться в гілку bot-data КОЖНІ 5 ХВИЛИН,
+# тому навіть аварійне вбивство процесу коштує максимум кілька хвилин даних.
 on:
   workflow_dispatch:
   schedule:
@@ -15,7 +15,7 @@ concurrency:
 
 permissions:
   contents: write
-  actions: write               # потрібно, щоб запустити наступний цикл
+  actions: write
 
 jobs:
   run:
@@ -48,15 +48,61 @@ jobs:
             git fetch origin bot-data --depth=1 -q
             git checkout origin/bot-data -- data/eurotour.db 2>/dev/null || true
             if [ -f data/eurotour.db ]; then
-              echo "База відновлена ($(stat -c%s data/eurotour.db) байт)"
+              echo "✅ База відновлена ($(stat -c%s data/eurotour.db) байт)"
+              python - <<'PY'
+          import sqlite3
+          d = sqlite3.connect("data/eurotour.db")
+          for t in ("nodes","users","tickets","tr","cfg","states"):
+              try:
+                  n = d.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+                  print(f"   {t}: {n}")
+              except Exception:
+                  pass
+          print("   integrity:", d.execute("PRAGMA integrity_check").fetchone()[0])
+          PY
             fi
           else
             echo "Перший запуск — база буде створена."
           fi
 
+      # ── АВТОЗБЕРЕЖЕННЯ КОЖНІ 5 ХВИЛИН (у фоні, поки працює бот) ──
+      - name: Увімкнути автозбереження бази
+        run: |
+          git config user.name  "eurotour-bot"
+          git config user.email "bot@users.noreply.github.com"
+          cat > /tmp/autosave.sh <<'SH'
+          #!/bin/bash
+          cd "$GITHUB_WORKSPACE"
+          LAST=""
+          while true; do
+            sleep 300                      # кожні 5 хвилин
+            [ -f data/eurotour.db ] || continue
+            # злити WAL у файл, щоб копія була цілісною
+            python - <<'PY' 2>/dev/null || continue
+          import sqlite3
+          d = sqlite3.connect("data/eurotour.db")
+          d.execute("PRAGMA wal_checkpoint(TRUNCATE)"); d.commit(); d.close()
+          PY
+            SUM=$(md5sum data/eurotour.db | cut -d' ' -f1)
+            [ "$SUM" = "$LAST" ] && continue          # нічого не змінилось
+            LAST="$SUM"
+            cp data/eurotour.db /tmp/save.db
+            git fetch origin bot-data -q 2>/dev/null || true
+            git checkout -q -B tmp-save origin/bot-data 2>/dev/null || git checkout -q --orphan tmp-save
+            git rm -rf --cached . -q 2>/dev/null || true
+            find . -maxdepth 1 ! -name . ! -name .git ! -name data -exec rm -rf {} + 2>/dev/null || true
+            mkdir -p data && cp /tmp/save.db data/eurotour.db
+            git add -f data/eurotour.db
+            git commit -q -m "autosave: $(date -u '+%H:%M UTC')" 2>/dev/null || continue
+            git push -f -q origin tmp-save:bot-data 2>/dev/null && echo "💾 автозбереження $(date -u '+%H:%M')"
+            git checkout -q "$GITHUB_SHA" -- . 2>/dev/null || true
+          done
+          SH
+          chmod +x /tmp/autosave.sh
+          nohup /tmp/autosave.sh > /tmp/autosave.log 2>&1 &
+          echo "Автозбереження увімкнено (кожні 5 хв)"
+
       # ── РОБОТА ──
-      # 5 год 20 хв роботи. Ліміт GitHub — 6 год, тож лишається 40 хв запасу
-      # на збереження бази й старт наступного циклу.
       - name: Запустити бота
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
@@ -69,37 +115,41 @@ jobs:
             echo "::error::Немає секрету BOT_TOKEN (Settings → Secrets and variables → Actions)"
             exit 1
           fi
-          # SIGTERM за 5 год 20 хв — бот встигає коректно закрити БД
           timeout --signal=TERM --kill-after=60 19200 python -u s.py || true
           echo "Цикл завершено."
+          pkill -f autosave.sh 2>/dev/null || true
 
-      # ── ЗБЕРЕЖЕННЯ ── (виконується завжди, навіть після збою)
+      # ── ФІНАЛЬНЕ ЗБЕРЕЖЕННЯ ── (завжди, навіть після збою)
       - name: Зберегти базу в гілку bot-data
         if: always()
         run: |
+          pkill -f autosave.sh 2>/dev/null || true
+          sleep 2
           [ -f data/eurotour.db ] || { echo "Бази немає"; exit 0; }
-          # злити WAL у сам файл, щоб не втратити останні хвилини
           python - <<'PY'
           import sqlite3
           d = sqlite3.connect("data/eurotour.db")
-          d.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-          d.commit(); d.close()
-          print("WAL злито у файл бази")
+          d.execute("PRAGMA wal_checkpoint(TRUNCATE)"); d.commit()
+          for t in ("nodes","users","tickets","states"):
+              try:
+                  print(f"   {t}: {d.execute(f'SELECT count(*) FROM {t}').fetchone()[0]}")
+              except Exception:
+                  pass
+          d.close()
           PY
+          cp data/eurotour.db /tmp/final.db
           git config user.name  "eurotour-bot"
           git config user.email "bot@users.noreply.github.com"
-          git checkout --orphan tmp-data -q
-          git rm -rf --cached . >/dev/null 2>&1 || true
+          git checkout -q --orphan tmp-data
+          git rm -rf --cached . -q 2>/dev/null || true
           find . -maxdepth 1 ! -name . ! -name .git ! -name data -exec rm -rf {} + 2>/dev/null || true
+          mkdir -p data && cp /tmp/final.db data/eurotour.db
           git add -f data/eurotour.db
           git commit -q -m "data: $(date -u '+%Y-%m-%d %H:%M UTC')" || { echo "Змін немає"; exit 0; }
           git push -f -q origin tmp-data:bot-data
-          echo "База збережена в гілці bot-data"
+          echo "✅ База збережена"
 
       # ── ЕСТАФЕТА ──
-      # Запускаємо наступний цикл ПІСЛЯ збереження бази.
-      # concurrency не дасть двом копіям працювати одночасно: новий запуск
-      # спокійно чекає в черзі, поки цей job повністю завершиться.
       - name: Передати естафету наступному циклу
         if: always()
         env:

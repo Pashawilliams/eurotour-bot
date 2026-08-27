@@ -291,9 +291,21 @@ async def q1(sql: str, *a) -> Optional[aiosqlite.Row]:
         return await c.fetchone()
 
 
+_WCNT = 0          # лічильник записів для періодичного checkpoint
+
+
 async def ex(sql: str, *a) -> int:
     cur = await db.execute(sql, a)
     await db.commit()
+    # Важливі зміни (правки адміна, нові користувачі, звернення) одразу
+    # зливаємо з WAL у сам файл БД — щоб раптове вбивство процесу
+    # на хостингу не з'їло останні дії.
+    if sql[:6].upper() in ("INSERT", "UPDATE", "DELETE"):
+        global _WCNT
+        _WCNT += 1
+        if _WCNT % 5 == 0:                        # не частіше, ніж раз на 5 записів
+            with suppress(Exception):
+                await db.execute("PRAGMA wal_checkpoint(PASSIVE)")
     return cur.lastrowid or 0
 
 
