@@ -1,0 +1,12 @@
+# ніколи не комітити базу й логи з робочої машини
+*.db
+*.db-wal
+*.db-shm
+*.bak*
+*.log
+data/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env

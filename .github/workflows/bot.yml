@@ -1,0 +1,78 @@
+name: EUROTOUR bot
+
+# ЗАПУСК: вкладка Actions → EUROTOUR bot → Run workflow
+# Також стартує сам щогодини (щоб підхопитись після зупинки).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 * * * *"
+
+# Дві копії одного бота конфліктують за токен — тому лише один запуск за раз.
+concurrency:
+  group: eurotour-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: write        # потрібно, щоб зберігати базу назад у гілку bot-data
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350        # ~5 год 50 хв (ліміт GitHub — 6 год)
+
+    steps:
+      - name: Взяти код
+        uses: actions/checkout@v4
+
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Встановити бібліотеки
+        run: pip install -r requirements.txt
+
+      # ── ВІДНОВЛЕННЯ ДАНИХ ──
+      # База лежить в окремій гілці bot-data, щоб правки в панелі не зникали.
+      - name: Відновити базу з гілки bot-data
+        run: |
+          mkdir -p data
+          if git ls-remote --exit-code --heads origin bot-data >/dev/null 2>&1; then
+            git fetch origin bot-data --depth=1
+            git checkout origin/bot-data -- data/eurotour.db 2>/dev/null || true
+            echo "База відновлена:"; ls -la data/ || true
+          else
+            echo "Гілки bot-data ще немає — перший запуск, база буде створена."
+          fi
+
+      - name: Запустити бота
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          OWNER_ID: ${{ secrets.OWNER_ID }}
+          DB_PATH: ${{ github.workspace }}/data/eurotour.db
+          RESTART_HOURS: "0"        # перезапуском керує сам GitHub
+          PYTHONUNBUFFERED: "1"
+        run: |
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "::error::Немає секрету BOT_TOKEN. Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          # Лишаємо 3 хв, щоб встигнути зберегти базу до вбивства завдання
+          timeout 20700 python -u s.py || code=$?
+          echo "Бот зупинився (код ${code:-0})"
+
+      # ── ЗБЕРЕЖЕННЯ ДАНИХ ──
+      # Виконується завжди, навіть якщо бот впав.
+      - name: Зберегти базу в гілку bot-data
+        if: always()
+        run: |
+          if [ ! -f data/eurotour.db ]; then echo "Бази немає — нічого зберігати"; exit 0; fi
+          git config user.name  "eurotour-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git checkout --orphan tmp-data
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          find . -maxdepth 1 ! -name . ! -name .git ! -name data -exec rm -rf {} + 2>/dev/null || true
+          git add -f data/eurotour.db
+          git commit -m "data: $(date -u '+%Y-%m-%d %H:%M UTC')" || exit 0
+          git push -f origin tmp-data:bot-data
+          echo "База збережена в гілці bot-data"

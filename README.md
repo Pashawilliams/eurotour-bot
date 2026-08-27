@@ -1,0 +1,94 @@
+# EUROTOUR — Telegram support bot
+
+Багатомовний (UA / RU / PL / EN) бот підтримки: розділи з інформацією,
+контакти, звернення до менеджера та прихована адмін-панель із конструктором
+кнопок і сторінок — усе редагується прямо в Telegram, без програміста.
+
+Увесь бот — **один файл `s.py`**.
+
+---
+
+## Запуск на GitHub Actions
+
+1. **Settings → Secrets and variables → Actions → New repository secret**
+
+   | Ім'я | Значення |
+   |---|---|
+   | `BOT_TOKEN` | токен від [@BotFather](https://t.me/BotFather) |
+   | `OWNER_ID`  | ваш Telegram ID (`/myid` у боті) |
+
+2. **Actions → EUROTOUR bot → Run workflow**
+
+Далі бот піднімається сам щогодини, якщо був зупинений.
+
+### ⚠️ Важливо знати про Actions
+
+GitHub убиває будь-яке завдання через **6 годин** — це ліміт платформи,
+обійти його не можна. Тому бот працює циклами: ~5 год 50 хв, потім
+GitHub стартує його заново.
+
+Щоб правки в панелі не зникали, база після кожного циклу зберігається
+в окрему гілку **`bot-data`** і відновлюється при старті. Але між
+збереженням і новим запуском є **пауза до кількох хвилин**, коли бот
+не відповідає, і повідомлення в цей проміжок губляться.
+
+**Для постійної роботи 24/7 потрібен звичайний хостинг** (VPS від $4/міс,
+Railway, Render, Fly.io) — там бот працює без пауз, а база лежить на
+постійному диску.
+
+---
+
+## Запуск на своєму сервері (рекомендовано)
+
+```bash
+python3 s.py
+```
+
+Бібліотеки бот встановить сам при першому запуску.
+Токен — у змінній `BOT_TOKEN` або в рядку `TOKEN` на початку файлу.
+
+### Змінні оточення
+
+| Змінна | Призначення |
+|---|---|
+| `BOT_TOKEN` | токен бота |
+| `OWNER_ID` | Telegram ID власника |
+| `DB_PATH` | шлях до бази, напр. `/data/eurotour.db` |
+| `RESTART_HOURS` | самоперезапуск, годин (`0` — вимкнути) |
+| `PROXY` | `http://user:pass@host:port`, якщо Telegram заблоковано |
+| `IPV4` | `0` — не форсувати IPv4 (для IPv6-хостингів) |
+
+### systemd
+
+```ini
+[Unit]
+Description=EUROTOUR bot
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/eurotour
+Environment=BOT_TOKEN=xxx
+Environment=DB_PATH=/opt/eurotour/eurotour.db
+ExecStart=/usr/bin/python3 /opt/eurotour/s.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
+
+## Перша настройка
+
+**⚙️ Панель → ⚙️ Налаштування → 📥 Змінити чат** — переслати повідомлення
+з групи, куди мають падати звернення. Поки чат не задано, вони йдуть
+власнику в особисті.
+
+## Тести
+
+```bash
+python test_bot.py          # 150 тестів функціоналу
+python test_resilience.py   #  16 тестів стійкості
+python test_persistence.py  #  18 тестів збереження даних
+```
