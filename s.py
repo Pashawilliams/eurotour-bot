@@ -225,6 +225,10 @@ CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, uname TEXT, name TEXT, 
 CREATE TABLE IF NOT EXISTS tickets(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, body TEXT,
   mtype TEXT DEFAULT '', mid TEXT DEFAULT '', status TEXT DEFAULT 'new', tag TEXT DEFAULT '',
   created INTEGER, mgr TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS replies(id INTEGER PRIMARY KEY AUTOINCREMENT, tid INTEGER, uid INTEGER,
+  body TEXT, mtype TEXT DEFAULT '', mid TEXT DEFAULT '', mgr TEXT DEFAULT '', created INTEGER);
+CREATE INDEX IF NOT EXISTS replies_tid ON replies(tid);
+CREATE INDEX IF NOT EXISTS replies_uid ON replies(uid);
 CREATE TABLE IF NOT EXISTS hist(id INTEGER PRIMARY KEY AUTOINCREMENT, node INTEGER, lang TEXT,
   body TEXT, ts INTEGER);
 CREATE TABLE IF NOT EXISTS trash(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, data TEXT);
@@ -259,6 +263,26 @@ SYS_DEF = {
     "back": {"uk": "⬅️ Назад", "ru": "⬅️ Назад", "pl": "⬅️ Wstecz", "en": "⬅️ Back"},
     "home": {"uk": "🏠 Головне меню", "ru": "🏠 Главное меню", "pl": "🏠 Menu główne", "en": "🏠 Main menu"},
     "cancel": {"uk": "❌ Скасувати", "ru": "❌ Отменить", "pl": "❌ Anuluj", "en": "❌ Cancel"},
+    # ── «Мої звернення» (клієнт бачить свої листи й відповіді) ──
+    "mymsg": {"uk": "📋 Мої звернення", "ru": "📋 Мои обращения",
+              "pl": "📋 Moje zgłoszenia", "en": "📋 My messages"},
+    "mymsg_t": {"uk": "📋 <b>Ваші звернення</b>\n\nТут зібрано все, що ви нам писали, і наші відповіді.",
+                "ru": "📋 <b>Ваши обращения</b>\n\nЗдесь собрано всё, что вы нам писали, и наши ответы.",
+                "pl": "📋 <b>Twoje zgłoszenia</b>\n\nTutaj są wszystkie Twoje wiadomości i nasze odpowiedzi.",
+                "en": "📋 <b>Your messages</b>\n\nEverything you sent us and our replies."},
+    "mymsg_no": {"uk": "📭 Ви ще нічого не писали.\n\nНатисніть «✍️ Написати зараз» — і менеджер відповість особисто.",
+                 "ru": "📭 Вы ещё ничего не писали.\n\nНажмите «✍️ Написать сейчас» — и менеджер ответит лично.",
+                 "pl": "📭 Nie wysłałeś jeszcze wiadomości.\n\nKliknij «✍️ Napisz teraz» — menedżer odpowie osobiście.",
+                 "en": "📭 You haven't written to us yet.\n\nTap «✍️ Write to us now» and our manager will reply."},
+    "mymsg_you": {"uk": "🗨 <b>Ви написали:</b>", "ru": "🗨 <b>Вы написали:</b>",
+                  "pl": "🗨 <b>Napisałeś:</b>", "en": "🗨 <b>You wrote:</b>"},
+    "mymsg_ans": {"uk": "💬 <b>Відповідь менеджера:</b>", "ru": "💬 <b>Ответ менеджера:</b>",
+                  "pl": "💬 <b>Odpowiedź menedżera:</b>", "en": "💬 <b>Manager's reply:</b>"},
+    "mymsg_wait": {"uk": "⏳ Відповідь готується — менеджер незабаром напише.",
+                   "ru": "⏳ Ответ готовится — менеджер скоро напишет.",
+                   "pl": "⏳ Odpowiedź w przygotowaniu — menedżer wkrótce napisze.",
+                   "en": "⏳ Reply is on the way — our manager will write soon."},
+    "mymsg_media": {"uk": "📎 файл", "ru": "📎 файл", "pl": "📎 plik", "en": "📎 file"},
 }
 CFG_DEF = {"chat_id": "", "notify": "1", "confirm": "1", "files": "1", "spam": "20",
            "maint": "0", "backbtn": "1", "deflang": "uk", "langs": "uk,ru,pl,en",
@@ -454,6 +478,28 @@ async def init_db() -> None:
             await db.execute("DELETE FROM trcache")
             await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('trcclr','1')")
             log.info("Кеш перекладів очищено")
+    # Кнопка «Мої звернення» поряд із «Написати зараз» — щоб клієнт бачив
+    # свої листи й відповіді. Додаємо один раз у той самий розділ, де форма.
+    cur = await db.execute("SELECT v FROM cfg WHERE k='mymsgbtn'")
+    if not await cur.fetchone():
+        with suppress(Exception):
+            cur = await db.execute("SELECT id FROM nodes WHERE typ='mymsg' LIMIT 1")
+            if not await cur.fetchone():
+                cur = await db.execute("SELECT id,parent FROM nodes WHERE typ='form' ORDER BY id LIMIT 1")
+                frm = await cur.fetchone()
+                if frm:
+                    cur = await db.execute("SELECT COALESCE(MAX(pos),-1)+1 FROM nodes WHERE parent=?",
+                                           (frm[1],))
+                    pos = (await cur.fetchone())[0]
+                    cur = await db.execute(
+                        "INSERT INTO nodes(parent,typ,pos,roww,sys) VALUES(?,'mymsg',?,1,'mymsg')",
+                        (frm[1], pos))
+                    nid = cur.lastrowid
+                    for l, lab in SYS_DEF["mymsg"].items():
+                        await db.execute("INSERT OR IGNORE INTO tr(node,lang,label) VALUES(?,?,?)",
+                                         (nid, l, lab))
+                    log.info("Додано кнопку «Мої звернення» (розділ %s)", frm[1])
+            await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('mymsgbtn','1')")
     await db.commit()
     await db.commit()
     log.info("БД: %s (journal=%s)", DB_PATH,
@@ -488,6 +534,10 @@ async def init_db() -> None:
                 fid = await ex("INSERT INTO nodes(parent,typ,pos,roww,sys) VALUES(?,'form',0,1,'form')", nid)
                 for l, lab in SEED_FORM.items():
                     await db.execute("INSERT OR IGNORE INTO tr(node,lang,label) VALUES(?,?,?)", (fid, l, lab))
+                # «Мої звернення» — клієнт бачить свої листи й відповіді
+                mid_ = await ex("INSERT INTO nodes(parent,typ,pos,roww,sys) VALUES(?,'mymsg',1,1,'mymsg')", nid)
+                for l, lab in SYS_DEF["mymsg"].items():
+                    await db.execute("INSERT OR IGNORE INTO tr(node,lang,label) VALUES(?,?,?)", (mid_, l, lab))
                 await db.commit()
 
 
@@ -1093,6 +1143,64 @@ async def show_node(ev: Message | CallbackQuery, nid: int, uid: int) -> None:
     await render(ev, text, markup, t["mtype"] or "", t["mid"] or "")
 
 
+async def my_tickets(ev, uid: int, page: int = 0) -> None:
+    """Клієнт бачить свої звернення і відповіді менеджерів.
+
+    Показуємо як переписку: спершу що написав клієнт, під ним — відповіді.
+    Статуси («в роботі», «закрито») навмисно не показуємо — вони службові.
+    """
+    lang = await ulang(uid)
+    per = 5
+    total = await scalar("SELECT COUNT(*) FROM tickets WHERE uid=?", uid)
+    if not total:
+        await render(ev, await T("mymsg_no", lang),
+                     kb([[B(await T("back", lang), "home")]]))
+        return
+    pages = max(1, (total + per - 1) // per)
+    page = max(0, min(page, pages - 1))
+    rows_db = await qa("SELECT * FROM tickets WHERE uid=? ORDER BY id DESC LIMIT ? OFFSET ?",
+                       uid, per, page * per)
+    parts = [await T("mymsg_t", lang), ""]
+    for t in rows_db:
+        body = (t["body"] or "").strip()
+        if not body and t["mid"]:
+            body = await T("mymsg_media", lang)
+        parts.append("━━━━━━━━━━━━━━━━━━")
+        parts.append(f"🕐 <i>{ts(t['created'])}</i>")
+        parts.append(await T("mymsg_you", lang))
+        parts.append(esc(body[:700]) or "—")
+        answers = await qa("SELECT * FROM replies WHERE tid=? ORDER BY id", t["id"])
+        if answers:
+            for a in answers:
+                abody = (a["body"] or "").strip()
+                if not abody and a["mid"]:
+                    abody = await T("mymsg_media", lang)
+                parts.append("")
+                parts.append(await T("mymsg_ans", lang) + f" <i>{ts(a['created'])}</i>")
+                parts.append(esc(abody[:700]) or "—")
+        else:
+            parts.append("")
+            parts.append(await T("mymsg_wait", lang))
+        parts.append("")
+    rows = []
+    nav = []
+    if page > 0:
+        nav.append(B("◀️", f"my:{page-1}"))
+    if pages > 1:
+        nav.append(B(f"{page+1}/{pages}", "noop"))
+    if page + 1 < pages:
+        nav.append(B("▶️", f"my:{page+1}"))
+    if nav:
+        rows.append(nav)
+    # кнопка «написати ще» — веде на форму звернення, якщо вона є
+    form = await q1("SELECT id FROM nodes WHERE typ='form' AND hidden=0 AND draft=0 ORDER BY id LIMIT 1")
+    if form:
+        ft = await node_tr(form["id"], lang)
+        rows.append([B(ft["label"] or "✍️", f"n:{form['id']}")])
+    rows.append([B(await T("back", lang), "home")])
+    await render(ev, "\n".join(parts).strip(), kb(rows))
+
+
 async def lang_menu(lang: str) -> InlineKeyboardMarkup:
     rows = grid([B(LANGS[l], f"l:{l}") for l in langs_on()], 2)
     rows.append([B(await T("back", lang), "home")])
@@ -1148,6 +1256,23 @@ async def cb_cancel(c: CallbackQuery) -> None:
     await show_node(c, 1, c.from_user.id)
 
 
+@user_r.callback_query(F.data.startswith("my:"), F.message.chat.type == "private")
+async def cb_my(c: CallbackQuery) -> None:
+    """Гортання сторінок у розділі «Мої звернення»."""
+    uid = c.from_user.id
+    await c.answer()
+    try:
+        page = int(c.data.split(":", 1)[1])
+    except ValueError:
+        page = 0
+    await my_tickets(c, uid, page)
+
+
+@user_r.callback_query(F.data == "noop", F.message.chat.type == "private")
+async def cb_noop(c: CallbackQuery) -> None:
+    await c.answer()
+
+
 @user_r.callback_query(F.data.startswith("n:"), F.message.chat.type == "private")
 async def cb_node(c: CallbackQuery) -> None:
     uid = c.from_user.id
@@ -1168,6 +1293,10 @@ async def cb_node(c: CallbackQuery) -> None:
         await c.answer()
         await render(c, await T("ask", lang),
                      kb([[B(await T("cancel", lang), "cancel")]])); return
+    if typ == "mymsg":                       # «Мої звернення» — історія переписки
+        ST.pop(uid, None)
+        await c.answer()
+        await my_tickets(c, uid, 0); return
     if typ == "goto":
         try:
             await c.answer(); await show_node(c, int(node["target"] or 1), uid); return
@@ -2047,6 +2176,9 @@ async def admin_input(m: Message, st: dict) -> None:
             await send_content(m.bot, t["uid"], f"{await T('answer', lg)}\n\n{text}",
                                kb([[B(await T("home", lg), "home")]]), mtype, mid)
             await ex("UPDATE tickets SET status='work',mgr=? WHERE id=?", mgr, st["tid"])
+            # зберігаємо відповідь — клієнт побачить її в розділі «Мої звернення»
+            await ex("INSERT INTO replies(tid,uid,body,mtype,mid,mgr,created) VALUES(?,?,?,?,?,?,?)",
+                     st["tid"], t["uid"], text, mtype, mid, mgr, now())
             await m.answer(f"✅ Відповідь надіслано клієнту (звернення #{st['tid']}).\n"
                            f"Статус: 🟡 в роботі.")
             # повідомляємо решту команди, щоб двоє не відповідали одному клієнту
@@ -2373,6 +2505,7 @@ async def panel_cb(c: CallbackQuery) -> None:
                          [B("🔗 Посилання", f"p:sett:{arg}:url"), B("✍️ Форма", f"p:sett:{arg}:form")],
                          [B("📞 Телефон", f"p:sett:{arg}:phone"), B("📍 Гео", f"p:sett:{arg}:loc")],
                          [B("📎 Файл", f"p:sett:{arg}:file"), B("↩️ Перехід", f"p:sett:{arg}:goto")],
+                         [B("📋 Мої звернення", f"p:sett:{arg}:mymsg")],
                          BOTTOM(f"p:n:{arg}")])); return
     if sec == "sett":
         nid = I(arg)
@@ -2457,6 +2590,7 @@ async def panel_cb(c: CallbackQuery) -> None:
                          [B("🔗 Посилання", f"p:wt:{arg}:url"), B("✍️ Форма звернення", f"p:wt:{arg}:form")],
                          [B("📞 Телефон", f"p:wt:{arg}:phone"), B("📍 Геолокація", f"p:wt:{arg}:loc")],
                          [B("📎 Файл", f"p:wt:{arg}:file"), B("↩️ Перехід у розділ", f"p:wt:{arg}:goto")],
+                         [B("📋 Мої звернення", f"p:wt:{arg}:mymsg")],
                          BOTTOM(f"p:btn:{arg}")])); return
     if sec == "wt":
         ST[uid] = {"k": "wiz_label", "parent": I(arg), "typ": arg2}
