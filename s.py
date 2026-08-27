@@ -174,7 +174,28 @@ log = logging.getLogger("eurotour")
 
 db: aiosqlite.Connection = None      # type: ignore
 CFG: dict[str, str] = {}             # кэш настроек
-ST: dict[int, dict] = {}             # состояния ввода {user_id: {...}}
+class _States(dict):
+    """Стан діалогу, який САМ зберігається в БД.
+
+    Працює як звичайний dict (ST[uid] = ..., ST.pop(uid)), але кожна зміна
+    одразу пишеться в таблицю states. Тому після перезапуску людина
+    продовжує з того ж місця: недописане звернення, крок редагування тощо.
+    """
+
+    def __setitem__(self, uid, val):
+        super().__setitem__(uid, val)
+        _persist_state(uid, val)
+
+    def pop(self, uid, *a):
+        _persist_state(uid, None)
+        return super().pop(uid, *a)
+
+    def __delitem__(self, uid):
+        _persist_state(uid, None)
+        super().__delitem__(uid)
+
+
+ST: _States = _States()              # состояния ввода {user_id: {...}}
 ELANG: dict[int, str] = {}           # язык редактирования у админа
 LIVE: set[int] = set()               # админы в режиме живого редактирования
 LASTMSG: dict[int, float] = {}       # антиспам
@@ -198,6 +219,8 @@ CREATE TABLE IF NOT EXISTS hist(id INTEGER PRIMARY KEY AUTOINCREMENT, node INTEG
   body TEXT, ts INTEGER);
 CREATE TABLE IF NOT EXISTS trash(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, data TEXT);
 CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY, role TEXT DEFAULT 'full', name TEXT DEFAULT '');
+-- стан діалогу (що юзер/адмін зараз вводить) — щоб прогрес не губився при перезапуску
+CREATE TABLE IF NOT EXISTS states(uid INTEGER PRIMARY KEY, data TEXT, elang TEXT DEFAULT '', ts INTEGER);
 """
 
 SYS_DEF = {
@@ -275,6 +298,41 @@ async def ex(sql: str, *a) -> int:
 async def scalar(sql: str, *a) -> int:
     r = await q1(sql, *a)
     return int(r[0]) if r and r[0] is not None else 0
+
+
+def _persist_state(uid: int, val) -> None:
+    """Фонове збереження стану діалогу (не блокує обробку повідомлення)."""
+    if db is None:
+        return
+
+    async def _w():
+        with suppress(Exception):
+            if val is None:
+                await db.execute("DELETE FROM states WHERE uid=?", (uid,))
+            else:
+                await db.execute(
+                    "INSERT INTO states(uid,data,elang,ts) VALUES(?,?,?,?) "
+                    "ON CONFLICT(uid) DO UPDATE SET data=excluded.data,ts=excluded.ts",
+                    (uid, json.dumps(val, ensure_ascii=False), ELANG.get(uid, ""), now()))
+            await db.commit()
+    with suppress(RuntimeError):
+        asyncio.get_running_loop().create_task(_w())
+
+
+async def load_states() -> None:
+    """Підняти стани діалогів після перезапуску — прогрес не губиться."""
+    with suppress(Exception):
+        n = 0
+        for r in await qa("SELECT uid,data,elang FROM states WHERE ts>?", now() - 86400):
+            with suppress(Exception):
+                dict.__setitem__(ST, r["uid"], json.loads(r["data"]))
+                if r["elang"]:
+                    ELANG[r["uid"]] = r["elang"]
+                n += 1
+        # прибрати старе, щоб таблиця не росла
+        await ex("DELETE FROM states WHERE ts<?", now() - 86400)
+        if n:
+            log.info("Відновлено незавершених діалогів: %s", n)
 
 
 async def init_db() -> None:
@@ -2090,18 +2148,26 @@ async def _safe_close_db() -> None:
 
 
 async def autobackup_loop() -> None:
-    """Раз на годину робить копію БД поруч (3 останні). Тихо, без повідомлень."""
+    """Часто скидає дані на диск, раз на годину — повна копія.
+
+    Кожні 60 с робиться checkpoint: усе, що встигли натиснути користувачі
+    й наредагувати адмін, фізично лежить у файлі БД. Тому навіть раптове
+    вбивство процесу (як на GitHub Actions) не з'їдає прогрес.
+    """
+    tick = 0
     while True:
-        await asyncio.sleep(3600)
+        await asyncio.sleep(60)
+        tick += 1
         with suppress(Exception):
             if not db:
                 continue
-            await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             await db.commit()
-            dst = f"{DB_PATH}.bak{int(time.time()) % 3}"    # ротація 3 копій
-            async with aiosqlite.connect(dst) as target:
-                await db.backup(target)
-            log.debug("Автобекап БД → %s", dst)
+            await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")   # ⬅ щохвилини
+            if tick % 60 == 0:                                    # раз на годину
+                dst = f"{DB_PATH}.bak{int(time.time()) % 3}"      # ротація 3 копій
+                async with aiosqlite.connect(dst) as target:
+                    await db.backup(target)
+                log.debug("Автобекап БД → %s", dst)
 
 
 async def scheduled_restart(hours: float) -> None:
@@ -2277,6 +2343,7 @@ async def main() -> None:
             "Потім збережіть файл і запустіть знову: python3 bot.py\n")
 
     await init_db()
+    await load_states()          # відновити незавершені діалоги користувачів
 
     # На хостингу процес часто стартує раніше, ніж підніметься мережа.
     # Тихо чекаємо до 60 с, щоб не сипати помилками на старті.
