@@ -368,6 +368,30 @@ async def init_db() -> None:
     await db.execute("PRAGMA foreign_keys=ON")
     await db.execute("PRAGMA busy_timeout=10000")
     await db.executescript(SCHEMA)
+    # ── МІГРАЦІЇ ──
+    # CREATE TABLE IF NOT EXISTS не додає колонки у вже існуючу таблицю,
+    # тому нові поля дописуємо окремо. Без цього стара база + новий код = помилка.
+    async def _addcol(table: str, col: str, decl: str) -> None:
+        cur = await db.execute(f"PRAGMA table_info({table})")
+        if col not in [r[1] for r in await cur.fetchall()]:
+            with suppress(Exception):
+                await db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+                log.info("Міграція БД: %s.%s додано", table, col)
+
+    cur = await db.execute("PRAGMA table_info(tr)")
+    had_machine = "machine" in [r[1] for r in await cur.fetchall()]
+    await _addcol("tr", "machine", "INTEGER DEFAULT 0")
+    if not had_machine:
+        # Усе, що було в базі до автоперекладу, — це початкові тексти.
+        # Позначаємо їх машинними, щоб перша ж правка адміна розкидалась
+        # на інші мови. Далі кожен ручний текст стає недоторканим.
+        with suppress(Exception):
+            await db.execute("UPDATE tr SET machine=1 WHERE node<>1")
+        # автопереклад для старих баз має бути увімкнений
+        with suppress(Exception):
+            await db.execute("INSERT INTO cfg(k,v) VALUES('autotr','1') "
+                             "ON CONFLICT(k) DO UPDATE SET v='1'")
+    await db.commit()
     await db.commit()
     log.info("БД: %s (journal=%s)", DB_PATH,
              (await (await db.execute("PRAGMA journal_mode")).fetchone())[0])
