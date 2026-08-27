@@ -40,6 +40,15 @@ import asyncio, csv, hashlib, html, io, json, logging, os, re, signal, sys, time
 from contextlib import suppress
 from typing import Any, Optional, Sequence
 
+# ════════════════ ЧАСОВИЙ ПОЯС ════════════════
+# У боті всюди — один час, київський. Сервер (GitHub Actions, хостинг)
+# зазвичай живе за UTC, тому пояс задаємо явно, а не покладаємось на систему.
+# Літній/зимовий час перемикається сам: EEST (+3) влітку, EET (+2) взимку.
+TZNAME = "Europe/Kyiv"
+os.environ["TZ"] = TZNAME
+with suppress(Exception):
+    time.tzset()          # застосовує TZ до time.localtime() у всьому процесі
+
 # ════════════════ АВТОВСТАНОВЛЕННЯ БІБЛІОТЕК ════════════════
 # Скрипт сам ставить усе потрібне при першому запуску.
 # Нічого встановлювати вручну не треба — просто: python3 s.py
@@ -906,6 +915,11 @@ def now() -> int:
 
 
 def ts(v: int) -> str:
+    """Дата й час у київському поясі — однаково для клієнтів і менеджерів."""
+    with suppress(Exception):
+        from zoneinfo import ZoneInfo
+        from datetime import datetime
+        return datetime.fromtimestamp(v or 0, ZoneInfo(TZNAME)).strftime("%d.%m.%Y %H:%M")
     return time.strftime("%d.%m.%Y %H:%M", time.localtime(v or 0))
 
 
