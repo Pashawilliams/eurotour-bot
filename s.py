@@ -607,8 +607,33 @@ def _same_label(a: str, b: str) -> bool:
     return _split_emoji(a or "")[1].casefold() == _split_emoji(b or "")[1].casefold()
 
 
+_L_UK = set("іїєґ")
+_L_RU = set("ыъэё")
+_L_PL = set("ąćęłńóśźż")
+
+
+def detect_lang(text: str) -> str:
+    """Визначає мову підпису за характерними літерами.
+
+    Повертає '' якщо впевненості немає (напр. «Канал» і «Сайт» однакові
+    українською й російською) — такий текст не чіпаємо.
+    """
+    t = (text or "").casefold()
+    if not t:
+        return ""
+    ltr = set(t)
+    if ltr & _L_PL:
+        return "pl"
+    has_uk, has_ru = bool(ltr & _L_UK), bool(ltr & _L_RU)
+    if has_uk and not has_ru:
+        return "uk"
+    if has_ru and not has_uk:
+        return "ru"
+    return ""            # кирилиця без прикмет або латиниця — не вгадуємо
+
+
 async def translate_label(label: str, to: str, frm: str) -> str:
-    """Переклад підпису кнопки зі збереженням емодзі.
+    """Переклад підпису кнопки зі збереженням емодзі та великої літери.
 
     Емодзі не віддаємо перекладачу (він їх з'їдає або ламає), а короткі
     підписи додатково перевіряємо — сервіси іноді повертають сміття
@@ -624,7 +649,50 @@ async def translate_label(label: str, to: str, frm: str) -> str:
            or out.casefold() == core.casefold())
     if bad:
         return ""
+    # перекладачі часто повертають «отзывы» замість «Отзывы»
+    if core[:1].isupper() and out[:1].islower():
+        out = out[:1].upper() + out[1:]
     return f"{pre}{out}{post}"
+
+
+async def fix_lang_mismatch() -> int:
+    """Виправляє підписи, написані не тією мовою.
+
+    Якщо адмін сидів в українському інтерфейсі, але написав підпис
+    російською, текст лягав у слот «uk» — і кнопка була російською
+    в українській версії. Переносимо текст у його справжню мову,
+    а решту мов перекладаємо.
+    """
+    if CFG.get("autotr", "1") != "1":
+        return 0
+    on, fixed = langs_on(), 0
+    for n in await qa("SELECT id FROM nodes WHERE typ<>'root' ORDER BY id"):
+        nid = n["id"]
+        rows = {r["lang"]: r for r in await qa("SELECT lang,label,machine FROM tr WHERE node=?", nid)}
+        for lg in on:
+            r = rows.get(lg)
+            lab = ((r["label"] if r else "") or "").strip()
+            real = detect_lang(lab)
+            if not lab or not real or real == lg or real not in on:
+                continue
+            # 1) оригінал кладемо у його справжню мову (це текст адміна — ручний)
+            cur = rows.get(real)
+            if not cur or not (cur["label"] or "").strip() or cur["machine"] or _same_label(cur["label"], lab):
+                await ex("INSERT INTO tr(node,lang,label,machine) VALUES(?,?,?,0) "
+                         "ON CONFLICT(node,lang) DO UPDATE SET label=?,machine=0",
+                         nid, real, lab, lab)
+            # 2) слот, де текст опинився помилково, перекладаємо
+            new = await translate_label(lab, lg, real)
+            if new:
+                await ex("INSERT INTO tr(node,lang,label,machine) VALUES(?,?,?,1) "
+                         "ON CONFLICT(node,lang) DO UPDATE SET label=?,machine=1",
+                         nid, lg, new, new)
+                fixed += 1
+                log.info("Підпис розділу %s: %r (%s) → слот %s = %r", nid, lab, real, lg, new)
+            rows = {x["lang"]: x for x in await qa("SELECT lang,label,machine FROM tr WHERE node=?", nid)}
+    if fixed:
+        log.info("Виправлено підписів не тією мовою: %s", fixed)
+    return fixed
 
 
 async def translate_missing() -> int:
@@ -1656,13 +1724,20 @@ async def admin_input(m: Message, st: dict) -> None:
         if not lab:
             await m.answer("⚠️ Надішліть текст підпису."); return
         warn = "\n⚠️ Довгий підпис — на вузьких екранах обріжеться." if len(lab) > 24 else ""
+        # Якщо адмін написав підпис іншою мовою, ніж інтерфейс (напр. російською
+        # в українському меню) — кладемо текст у ЙОГО мову, інакше кнопка
+        # виглядала б російською в українській версії.
+        src = detect_lang(lab) or lang
+        if src not in langs_on():
+            src = lang
         await ex("INSERT INTO tr(node,lang,label,machine) VALUES(?,?,?,0) "
                  "ON CONFLICT(node,lang) DO UPDATE SET label=?,machine=0",
-                 st["node"], lang, lab[:64], lab[:64])
+                 st["node"], src, lab[:64], lab[:64])
         with suppress(RuntimeError):
-            asyncio.get_running_loop().create_task(autotranslate_node(st["node"], lang))
+            asyncio.get_running_loop().create_task(autotranslate_node(st["node"], src))
         ST.pop(uid, None)
-        await m.answer(f"✅ Підпис збережено: [ {esc(lab[:64])} ]{warn}")
+        note = f"\n🌐 Мова підпису: <b>{LANGS.get(src, src)}</b> — інші мови перекладу автоматично." if src != lang else ""
+        await m.answer(f"✅ Підпис збережено: [ {esc(lab[:64])} ]{warn}{note}")
         await node_editor(m, uid, st["node"]); return
 
     if k == "sys":
@@ -2761,8 +2836,15 @@ async def run_bot() -> None:
     guard = asyncio.create_task(watchdog(bot))
     timer = asyncio.create_task(scheduled_restart(RESTART_HOURS))
     saver = asyncio.create_task(autobackup_loop())
-    # доперекласти підписи кнопок, яких бракує іншими мовами (фоном, не блокує старт)
-    filler = asyncio.create_task(translate_missing())
+    # привести підписи до потрібних мов і доперекласти те, чого бракує
+    # (фоном, щоб не затримувати старт бота)
+    async def _lang_fix() -> None:
+        with suppress(Exception):
+            await fix_lang_mismatch()
+        with suppress(Exception):
+            await translate_missing()
+
+    filler = asyncio.create_task(_lang_fix())
     try:
         poll = asyncio.create_task(dp.start_polling(
             bot,
