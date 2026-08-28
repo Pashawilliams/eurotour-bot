@@ -242,7 +242,11 @@ CREATE INDEX IF NOT EXISTS replies_uid ON replies(uid);
 CREATE TABLE IF NOT EXISTS book(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER,
   afrom TEXT, ato TEXT, lat1 REAL, lon1 REAL, lat2 REAL, lon2 REAL,
   km REAL, hours REAL, cls TEXT, eur INTEGER, uah INTEGER,
-  status TEXT DEFAULT 'new', created INTEGER);
+  status TEXT DEFAULT 'new', created INTEGER,
+  -- пасажири за категоріями та знижки
+  adults INTEGER DEFAULT 1, seniors INTEGER DEFAULT 0, kids INTEGER DEFAULT 0,
+  pax INTEGER DEFAULT 1, tdate TEXT DEFAULT '', ttime TEXT DEFAULT '',
+  eur_full INTEGER DEFAULT 0, uah_full INTEGER DEFAULT 0, disc INTEGER DEFAULT 0);
 CREATE INDEX IF NOT EXISTS book_uid ON book(uid);
 CREATE INDEX IF NOT EXISTS book_status ON book(status);
 CREATE TABLE IF NOT EXISTS tariff(cls TEXT, lo REAL, hi REAL, eur INTEGER, uah INTEGER,
@@ -277,6 +281,23 @@ TARIFF_L = [(6, 8, 90, 4670), (8, 10, 100, 5190), (10, 12, 130, 6740), (12, 14, 
             (45, 999, 270, 14000)]
 
 SYS_DEF = {
+    "bk_paxtit": {"uk": "👥 <b>СКІЛЬКИ ПАСАЖИРІВ?</b>", "ru": "👥 <b>СКОЛЬКО ПАССАЖИРОВ?</b>", "pl": "👥 <b>ILU PASAŻERÓW?</b>", "en": "👥 <b>HOW MANY PASSENGERS?</b>"},
+    "bk_adult": {"uk": "Дорослі", "ru": "Взрослые", "pl": "Dorośli", "en": "Adults"},
+    "bk_senior": {"uk": "Пенсіонери", "ru": "Пенсионеры", "pl": "Emeryci", "en": "Seniors"},
+    "bk_kid": {"uk": "Діти до 16", "ru": "Дети до 16", "pl": "Dzieci do 16", "en": "Children under 16"},
+    "bk_total_pax": {"uk": "Разом пасажирів", "ru": "Всего пассажиров", "pl": "Razem pasażerów", "en": "Total passengers"},
+    "bk_disc_note": {"uk": "Пенсіонерам знижка {p}%, дітям до 16 років — {k}%.\nЗнижка нараховується автоматично.", "ru": "Пенсионерам скидка {p}%, детям до 16 лет — {k}%.\nСкидка начисляется автоматически.", "pl": "Emeryci {p}% zniżki, dzieci do 16 lat — {k}%.\nZniżka naliczana automatycznie.", "en": "Seniors get {p}% off, children under 16 — {k}%.\nThe discount applies automatically."},
+    "bk_next": {"uk": "➡️ Далі: дата поїздки", "ru": "➡️ Далее: дата поездки", "pl": "➡️ Dalej: data wyjazdu", "en": "➡️ Next: travel date"},
+    "bk_maxpax": {"uk": "Максимум 20 місць в одній заявці. Для більшої групи напишіть нам.", "ru": "Максимум 20 мест в одной заявке. Для большей группы напишите нам.", "pl": "Maksymalnie 20 miejsc w jednym zgłoszeniu. Dla większej grupy napisz do nas.", "en": "Up to 20 seats per request. For a larger group, message us."},
+    "bk_datetit": {"uk": "📅 <b>КОЛИ ПЛАНУЄТЕ ПОЇЗДКУ?</b>", "ru": "📅 <b>КОГДА ПЛАНИРУЕТЕ ПОЕЗДКУ?</b>", "pl": "📅 <b>KIEDY PLANUJESZ WYJAZD?</b>", "en": "📅 <b>WHEN DO YOU PLAN TO TRAVEL?</b>"},
+    "bk_dep": {"uk": "Виїзд", "ru": "Выезд", "pl": "Wyjazd", "en": "Departure"},
+    "bk_daily": {"uk": "Виїзди <b>щодня</b>. 💺 COMFORT — о 08:00, ✨ LUX — о 18:00.", "ru": "Выезды <b>ежедневно</b>. 💺 COMFORT — в 08:00, ✨ LUX — в 18:00.", "pl": "Wyjazdy <b>codziennie</b>. 💺 COMFORT — o 08:00, ✨ LUX — o 18:00.", "en": "Departures <b>daily</b>. 💺 COMFORT at 08:00, ✨ LUX at 18:00."},
+    "bk_pickdate": {"uk": "Оберіть дату:", "ru": "Выберите дату:", "pl": "Wybierz datę:", "en": "Choose a date:"},
+    "bk_s_date": {"uk": "Дата", "ru": "Дата", "pl": "Data", "en": "Date"},
+    "bk_saved": {"uk": "Ваша знижка", "ru": "Ваша скидка", "pl": "Twoja zniżka", "en": "Your discount"},
+    "bk_total": {"uk": "Разом до сплати", "ru": "Итого к оплате", "pl": "Razem do zapłaty", "en": "Total"},
+    "bk_edit_pax": {"uk": "👥 Пасажири", "ru": "👥 Пассажиры", "pl": "👥 Pasażerowie", "en": "👥 Passengers"},
+    "bk_edit_date": {"uk": "📅 Дата", "ru": "📅 Дата", "pl": "📅 Data", "en": "📅 Date"},
     "bk_sumtit": {"uk": "🧾 <b>ПЕРЕВІРТЕ ЗАМОВЛЕННЯ</b>", "ru": "🧾 <b>ПРОВЕРЬТЕ ЗАКАЗ</b>", "pl": "🧾 <b>SPRAWDŹ ZAMÓWIENIE</b>", "en": "🧾 <b>CHECK YOUR ORDER</b>"},
     "bk_s_from": {"uk": "Звідки", "ru": "Откуда", "pl": "Skąd", "en": "From"},
     "bk_s_to": {"uk": "Куди", "ru": "Куда", "pl": "Dokąd", "en": "To"},
@@ -387,7 +408,13 @@ CFG_DEF = {"chat_id": "", "notify": "1", "confirm": "1", "files": "1", "spam": "
            "toadmins": "0",        # дублювати звернення особисто адмінам/менеджерам
            "bkon": "1",            # кнопка «Забронювати» увімкнена
            "bkadd": "3",           # +N год до часу з карт (кордон, зупинки, збір пасажирів)
-           "bkchat": ""}           # окремий чат для заявок; порожньо = туди ж, куди звернення
+           "bkchat": "",           # окремий чат для заявок; порожньо = туди ж, куди звернення
+           "bkgroup": "1",         # надсилати броні в груповий чат (0 = лише особисто)
+           "bkpens": "10",         # знижка пенсіонерам, %
+           "bkkids": "15",         # знижка дітям до 16 років, %
+           "bkc_time": "08:00",    # виїзд COMFORT
+           "bkl_time": "18:00",    # виїзд LUX
+           "bkdays": "14"}         # на скільки днів уперед показувати календар
 
 GREET = {"uk": "👋 <b>Вітаємо!</b>\n\nEUROTOUR — пасажирські перевезення Україна ⇄ Європа.\nКомфорт, пунктуальність, безпека.\n\nОберіть розділ 👇",
          "ru": "👋 <b>Добро пожаловать!</b>\n\nEUROTOUR — пассажирские перевозки Украина ⇄ Европа.\nКомфорт, пунктуальность, безопасность.\n\nВыберите раздел 👇",
@@ -508,6 +535,14 @@ async def init_db() -> None:
             with suppress(Exception):
                 await db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
                 log.info("Міграція БД: %s.%s додано", table, col)
+
+    # Бронювання: пасажири, категорії, дата виїзду й повна ціна до знижки.
+    for _c, _d in (("adults", "INTEGER DEFAULT 1"), ("seniors", "INTEGER DEFAULT 0"),
+                   ("kids", "INTEGER DEFAULT 0"), ("pax", "INTEGER DEFAULT 1"),
+                   ("tdate", "TEXT DEFAULT ''"), ("ttime", "TEXT DEFAULT ''"),
+                   ("eur_full", "INTEGER DEFAULT 0"), ("uah_full", "INTEGER DEFAULT 0"),
+                   ("disc", "INTEGER DEFAULT 0")):
+        await _addcol("book", _c, _d)
 
     cur = await db.execute("PRAGMA table_info(tr)")
     had_machine = "machine" in [r[1] for r in await cur.fetchall()]
@@ -1339,6 +1374,66 @@ async def tariff_for(hours: float, cls: str) -> tuple[int, int] | None:
     return r["eur"], r["uah"]
 
 
+async def bk_quote(hours: float, cls: str, adults: int, seniors: int, kids: int) -> dict | None:
+    """Рахує повну вартість поїздки з урахуванням пільг.
+
+    Ціна з тарифу — за одне місце. Пенсіонерам мінус bkpens %, дітям до 16 —
+    мінус bkkids %. Рахуємо кожну категорію окремо й округлюємо до цілих,
+    щоб у клієнта й менеджера збігалась копійка в копійку."""
+    pr = await tariff_for(hours, cls)
+    if not pr:
+        return None
+    eur1, uah1 = pr
+    adults = max(0, I(adults)); seniors = max(0, I(seniors)); kids = max(0, I(kids))
+    pax = adults + seniors + kids
+    if pax <= 0:
+        return None
+    dp = max(0, min(100, I(CFG.get("bkpens", "10"))))
+    dk = max(0, min(100, I(CFG.get("bkkids", "15"))))
+    # ціна за місце в кожній категорії (округлення до цілих грошових одиниць)
+    e_sen, u_sen = round(eur1 * (100 - dp) / 100), round(uah1 * (100 - dp) / 100)
+    e_kid, u_kid = round(eur1 * (100 - dk) / 100), round(uah1 * (100 - dk) / 100)
+    eur = adults * eur1 + seniors * e_sen + kids * e_kid
+    uah = adults * uah1 + seniors * u_sen + kids * u_kid
+    full_e, full_u = eur1 * pax, uah1 * pax
+    return {"eur1": eur1, "uah1": uah1, "e_sen": e_sen, "u_sen": u_sen,
+            "e_kid": e_kid, "u_kid": u_kid, "eur": int(eur), "uah": int(uah),
+            "full_eur": int(full_e), "full_uah": int(full_u),
+            "save_eur": int(full_e - eur), "save_uah": int(full_u - uah),
+            "pax": pax, "adults": adults, "seniors": seniors, "kids": kids,
+            "dp": dp, "dk": dk}
+
+
+def bk_times() -> dict:
+    """Час виїзду за класом: COMFORT зранку, LUX увечері."""
+    return {"c": (CFG.get("bkc_time", "08:00") or "08:00").strip(),
+            "l": (CFG.get("bkl_time", "18:00") or "18:00").strip()}
+
+
+def bk_dates(n: int = 14) -> list[str]:
+    """Найближчі N дат у форматі РРРР-ММ-ДД (виїзди щодня, з київського «сьогодні»)."""
+    import datetime as _dt
+    today = _dt.date.today()
+    with suppress(Exception):
+        from zoneinfo import ZoneInfo
+        today = _dt.datetime.now(ZoneInfo(TZNAME)).date()
+    return [(today + _dt.timedelta(days=i)).isoformat() for i in range(max(1, n))]
+
+
+def bk_dshow(iso: str, lang: str = "uk") -> str:
+    """2026-09-04 → «чт, 04.09»."""
+    import datetime as _dt
+    with suppress(Exception):
+        d = _dt.date.fromisoformat(iso)
+        wd = {"uk": ("пн", "вт", "ср", "чт", "пт", "сб", "нд"),
+              "ru": ("пн", "вт", "ср", "чт", "пт", "сб", "вс"),
+              "pl": ("pn", "wt", "śr", "cz", "pt", "sb", "nd"),
+              "en": ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")}
+        w = wd.get(lang, wd["uk"])[d.weekday()]
+        return f"{w}, {d.day:02d}.{d.month:02d}"
+    return iso
+
+
 def fmt_hours(h: float, lang: str = "uk") -> str:
     """18.4 → «18 год 25 хв» мовою клієнта."""
     total = int(round(h * 60))
@@ -1760,44 +1855,137 @@ async def bk_classes(ev, uid: int) -> None:
     await render(ev, txt, kb(rows))
 
 
-async def bk_price(ev, uid: int, cls: str) -> None:
-    """Крок 4 — контрольна зведення + кнопка «Підтвердити бронь».
+async def bk_pax(ev, uid: int) -> None:
+    """Крок 4 — скільки людей їде і хто саме (дорослі / пенсіонери / діти)."""
+    lang = await ulang(uid)
+    st = ST.get(uid) or {}
+    if not st.get("hours"):
+        await bk_start(ev, uid); return
+    ad, se, kd = I(st.get("adults", 1)), I(st.get("seniors", 0)), I(st.get("kids", 0))
+    pax = ad + se + kd
+    st.update(k="bk_pax", adults=ad, seniors=se, kids=kd)
+    ST[uid] = st
+    dp, dk = I(CFG.get("bkpens", "10")), I(CFG.get("bkkids", "15"))
+    txt = (f"{await T('bk_paxtit', lang)}\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
+           f"👤 {await T('bk_adult', lang)}: <b>{ad}</b>\n"
+           f"👵 {await T('bk_senior', lang)}: <b>{se}</b>  <i>−{dp}%</i>\n"
+           f"🧒 {await T('bk_kid', lang)}: <b>{kd}</b>  <i>−{dk}%</i>\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
+           f"👥 {await T('bk_total_pax', lang)}: <b>{pax}</b>\n\n"
+           f"{(await T('bk_disc_note', lang)).format(p=dp, k=dk)}")
+    rows = [
+        [B("−", "bk:pax:a:-"), B(f"👤 {await T('bk_adult', lang)}: {ad}", "p:noop"), B("+", "bk:pax:a:+")],
+        [B("−", "bk:pax:s:-"), B(f"👵 {await T('bk_senior', lang)}: {se}", "p:noop"), B("+", "bk:pax:s:+")],
+        [B("−", "bk:pax:k:-"), B(f"🧒 {await T('bk_kid', lang)}: {kd}", "p:noop"), B("+", "bk:pax:k:+")],
+    ]
+    if pax > 0:
+        rows.append([B(await T("bk_next", lang), "bk:date:0")])
+    rows.append([B(await T("back", lang), "home")])
+    await render(ev, txt, kb(rows))
 
-    Заявку тут НЕ створюємо: клієнт ще може порівняти класи чи змінити маршрут.
-    Запис у базу й розсилка — лише після натискання «Підтвердити»."""
+
+async def bk_date(ev, uid: int, page: int = 0) -> None:
+    """Крок 5 — дата виїзду. Рейси щодня; час залежить від класу."""
+    lang = await ulang(uid)
+    st = ST.get(uid) or {}
+    if not st.get("hours"):
+        await bk_start(ev, uid); return
+    st["k"] = "bk_date"
+    ST[uid] = st
+    cls = st.get("cls", "c")
+    tm = bk_times()[cls if cls in ("c", "l") else "c"]
+    nm = await T("bk_l" if cls == "l" else "bk_c", lang)
+    days = max(1, I(CFG.get("bkdays", "14")))
+    all_d = bk_dates(days)
+    per = 8
+    pages = max(1, (len(all_d) + per - 1) // per)
+    page = max(0, min(page, pages - 1))
+    chunk = all_d[page * per:(page + 1) * per]
+    txt = (f"{await T('bk_datetit', lang)}\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
+           f"🚌 {nm}\n"
+           f"🕗 {await T('bk_dep', lang)}: <b>{esc(tm)}</b>\n"
+           f"━━━━━━━━━━━━━━━━━━\n\n"
+           f"{await T('bk_daily', lang)}\n\n"
+           f"{await T('bk_pickdate', lang)}")
+    rows = grid([B(bk_dshow(d, lang), f"bk:d:{d}") for d in chunk], 2)
+    nav = []
+    if page > 0:
+        nav.append(B("◀️", f"bk:date:{page-1}"))
+    if pages > 1:
+        nav.append(B(f"{page+1}/{pages}", "p:noop"))
+    if page + 1 < pages:
+        nav.append(B("▶️", f"bk:date:{page+1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([B(await T("back", lang), "bk:pax:0:0")])
+    await render(ev, txt, kb(rows))
+
+
+async def bk_price(ev, uid: int, cls: str | None = None) -> None:
+    """Крок 6 — контрольна зведення з повним розрахунком.
+
+    Заявку тут НЕ створюємо: клієнт ще може змінити клас, склад пасажирів
+    чи дату. Запис у базу й розсилка — лише після «Підтвердити бронь»."""
     lang = await ulang(uid)
     st = ST.get(uid) or {}
     hrs = st.get("hours") or 0
     if not hrs or not st.get("fname") or not st.get("tname"):
         await bk_start(ev, uid); return
-    cls = "l" if cls == "l" else "c"
-    pr = await tariff_for(hrs, cls)
-    if not pr:
+    if cls:
+        st["cls"] = "l" if cls == "l" else "c"
+    cls = st.get("cls", "c")
+    q = await bk_quote(hrs, cls, st.get("adults", 1), st.get("seniors", 0), st.get("kids", 0))
+    if not q:
         body, rows = await contact_block(lang)
         rows.append([B(await T("back", lang), "home")])
         await render(ev, await T("bk_short", lang) + ("\n\n" + body if body else ""), kb(rows))
         return
-    eur, uah = pr
-    st.update(cls=cls, eur=eur, uah=uah, k="bk_sum")
+    tm = bk_times()[cls]
+    st.update(k="bk_sum", eur=q["eur"], uah=q["uah"], pax=q["pax"], ttime=tm)
     ST[uid] = st
     nm = await T("bk_l" if cls == "l" else "bk_c", lang)
     km = st.get("km") or 0
+    date_s = bk_dshow(st.get("tdate", ""), lang) if st.get("tdate") else "—"
+    # розклад по людях — щоб клієнт бачив, звідки взялась сума
+    lines = []
+    if q["adults"]:
+        lines.append(f"👤 {await T('bk_adult', lang)} × {q['adults']} → "
+                     f"{q['adults'] * q['eur1']} € / {q['adults'] * q['uah1']:,} грн".replace(",", " "))
+    if q["seniors"]:
+        lines.append(f"👵 {await T('bk_senior', lang)} × {q['seniors']} <i>(−{q['dp']}%)</i> → "
+                     f"{q['seniors'] * q['e_sen']} € / {q['seniors'] * q['u_sen']:,} грн".replace(",", " "))
+    if q["kids"]:
+        lines.append(f"🧒 {await T('bk_kid', lang)} × {q['kids']} <i>(−{q['dk']}%)</i> → "
+                     f"{q['kids'] * q['e_kid']} € / {q['kids'] * q['u_kid']:,} грн".replace(",", " "))
     txt = (f"{await T('bk_sumtit', lang)}\n"
            f"━━━━━━━━━━━━━━━━━━\n"
            f"📍 <b>{await T('bk_s_from', lang)}:</b>\n{esc(st.get('fname', ''))}\n\n"
            f"🏁 <b>{await T('bk_s_to', lang)}:</b>\n{esc(st.get('tname', ''))}\n\n"
+           f"📅 {await T('bk_s_date', lang)}: <b>{esc(date_s)}</b>\n"
+           f"🕗 {await T('bk_dep', lang)}: <b>{esc(tm)}</b>\n"
+           f"🚌 {await T('bk_s_cls', lang)}: <b>{nm}</b>\n"
            f"📏 {await T('bk_dist', lang)}: <b>{km:,.0f} км</b>\n".replace(",", " ") +
            f"🕐 {await T('bk_road', lang)}: <b>~{fmt_hours(hrs, lang)}</b>\n"
-           f"🚌 {await T('bk_s_cls', lang)}: <b>{nm}</b>\n"
            f"━━━━━━━━━━━━━━━━━━\n"
-           f"💰 {await T('bk_cost', lang)}: <b>{eur} €</b>  ·  <b>{uah:,} грн</b>".replace(",", " ") + "\n"
-           f"━━━━━━━━━━━━━━━━━━\n\n"
-           f"{await T('bk_note', lang)}\n\n"
-           f"{await T('bk_check', lang)}")
+           f"👥 {await T('bk_total_pax', lang)}: <b>{q['pax']}</b>\n"
+           + "\n".join(lines) + "\n")
+    if q["save_eur"] or q["save_uah"]:
+        txt += (f"<i>{await T('bk_saved', lang)}: −{q['save_eur']} € / "
+                f"−{q['save_uah']:,} грн</i>\n".replace(",", " "))
+    txt += (f"━━━━━━━━━━━━━━━━━━\n"
+            f"💰 {await T('bk_total', lang)}: <b>{q['eur']} €</b>  ·  "
+            f"<b>{q['uah']:,} грн</b>".replace(",", " ") + "\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
+            f"{await T('bk_note', lang)}\n\n"
+            f"{await T('bk_check', lang)}")
     other = "l" if cls == "c" else "c"
     rows = [[B(await T("bk_ok", lang), f"bk:ok:{cls}")],
             [B(f"{await T('bk_cmp', lang)} "
                f"{await T('bk_l' if other == 'l' else 'bk_c', lang)}", f"bk:c:{other}")],
+            [B(await T("bk_edit_pax", lang), "bk:pax:0:0"),
+             B(await T("bk_edit_date", lang), "bk:date:0")],
             [B(await T("bk_other", lang), "bk:new")],
             [B(await T("back", lang), "home")]]
     await render(ev, txt, kb(rows))
@@ -1811,10 +1999,11 @@ async def bk_confirm(ev, uid: int, cls: str) -> None:
     if not hrs or not st.get("fname") or not st.get("tname"):
         await bk_start(ev, uid); return
     cls = "l" if cls == "l" else "c"
-    pr = await tariff_for(hrs, cls)
-    if not pr:
+    q = await bk_quote(hrs, cls, st.get("adults", 1), st.get("seniors", 0), st.get("kids", 0))
+    if not q:
         await bk_price(ev, uid, cls); return
-    eur, uah = pr
+    tdate = st.get("tdate", "")
+    tm = bk_times()[cls]
     # захист від дубля: та сама заявка за останні 2 хвилини — не створюємо другу
     dup = await q1("SELECT id FROM book WHERE uid=? AND afrom=? AND ato=? AND cls=? AND created>? "
                    "ORDER BY id DESC LIMIT 1",
@@ -1823,17 +2012,23 @@ async def bk_confirm(ev, uid: int, cls: str) -> None:
         bid = dup["id"]
     else:
         bid = await ex("INSERT INTO book(uid,afrom,ato,lat1,lon1,lat2,lon2,km,hours,cls,eur,uah,"
-                       "status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'new',?)",
+                       "status,created,adults,seniors,kids,pax,tdate,ttime,eur_full,uah_full,disc) "
+                       "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?,?,?,?,?,?)",
                        uid, st.get("fname", ""), st.get("tname", ""), st.get("flat"), st.get("flon"),
-                       st.get("tlat"), st.get("tlon"), st.get("km", 0), hrs, cls, eur, uah, now())
+                       st.get("tlat"), st.get("tlon"), st.get("km", 0), hrs, cls,
+                       q["eur"], q["uah"], now(), q["adults"], q["seniors"], q["kids"],
+                       q["pax"], tdate, tm, q["full_eur"], q["full_uah"], q["save_eur"])
     body, crows = await contact_block(lang)
     nm = await T("bk_l" if cls == "l" else "bk_c", lang)
+    date_s = bk_dshow(tdate, lang) if tdate else "—"
     txt = (f"{await T('bk_done', lang)}\n"
            f"━━━━━━━━━━━━━━━━━━\n"
            f"🔖 {await T('bk_num', lang)}: <b>#{bid}</b>\n"
            f"📍 {esc(st.get('fname', ''))}\n"
            f"🏁 {esc(st.get('tname', ''))}\n"
-           f"🚌 {nm}  ·  <b>{eur} €</b> / {uah:,} грн".replace(",", " ") + "\n"
+           f"📅 {esc(date_s)} · 🕗 {esc(tm)}\n"
+           f"👥 {q['pax']} · 🚌 {nm}\n"
+           f"💰 <b>{q['eur']} €</b> / {q['uah']:,} грн".replace(",", " ") + "\n"
            f"━━━━━━━━━━━━━━━━━━\n\n"
            f"{await T('bk_soon', lang)}\n\n"
            f"{body}")
@@ -1849,14 +2044,22 @@ async def bk_confirm(ev, uid: int, cls: str) -> None:
 async def bk_notify(bot: Bot, uid: int, bid: int) -> None:
     """Підтверджена бронь — усім, хто працює із заявками.
 
-    Отримують: власник, адміни з повним доступом, менеджери звернень,
-    груповий чат бронювань (або чат звернень, якщо окремий не заданий)."""
+    Груповий чат отримує повідомлення, лише якщо увімкнено «bkgroup».
+    Власник, адміни з повним доступом і менеджери звернень — завжди."""
     b = await q1("SELECT * FROM book WHERE id=?", bid)
     if not b:
         return
     u = await q1("SELECT * FROM users WHERE id=?", uid)
     un = f"@{u['uname']}" if u and u["uname"] else "@ немає"
     cls = "✨ LUX" if b["cls"] == "l" else "💺 COMFORT"
+    parts = []
+    if I(b["adults"]):
+        parts.append(f"👤 дорослих: {I(b['adults'])}")
+    if I(b["seniors"]):
+        parts.append(f"👵 пенсіонерів: {I(b['seniors'])} (−{CFG.get('bkpens','10')}%)")
+    if I(b["kids"]):
+        parts.append(f"🧒 дітей до 16: {I(b['kids'])} (−{CFG.get('bkkids','15')}%)")
+    date_s = bk_dshow(b["tdate"] or "") if b["tdate"] else "—"
     txt = (f"🟢 <b>НОВА БРОНЬ #{bid}</b>\n"
            f"━━━━━━━━━━━━━━━━━━\n"
            f"👤 {esc((u['name'] if u else '') or uid)}\n"
@@ -1864,10 +2067,16 @@ async def bk_notify(bot: Bot, uid: int, bid: int) -> None:
            f"🆔 <code>{uid}</code>\n\n"
            f"📍 <b>Звідки:</b> {esc(b['afrom'])}\n"
            f"🏁 <b>Куди:</b> {esc(b['ato'])}\n"
+           f"📅 <b>Дата:</b> {esc(date_s)} · 🕗 {esc(b['ttime'] or '')}\n"
            f"📏 {b['km']:.0f} км · 🕐 {fmt_hours(b['hours'])}\n\n"
-           f"🚌 {cls}\n"
-           f"💰 <b>{b['eur']} €</b> / {b['uah']:,} грн".replace(",", " ") + "\n"
-           f"🕐 {ts(b['created'])}")
+           f"👥 <b>Пасажирів: {I(b['pax']) or 1}</b>\n"
+           + ("\n".join("    " + p for p in parts) + "\n" if parts else "") +
+           f"\n🚌 {cls}\n"
+           f"💰 <b>{b['eur']} €</b> / {b['uah']:,} грн".replace(",", " ") + "\n")
+    if I(b["disc"]):
+        txt += (f"<i>без пільг було б {I(b['eur_full'])} € / "
+                f"{I(b['uah_full']):,} грн</i>\n".replace(",", " "))
+    txt += f"🕐 {ts(b['created'])}"
     rows = kb([[B("✍️ Написати клієнту", f"p:bo:w:{bid}")],
                [B("✅ Опрацьовано", f"p:bo:done:{bid}")],
                [B("🗂 Картка заявки", f"p:bo:c:{bid}")]])
@@ -1880,13 +2089,13 @@ async def bk_notify(bot: Bot, uid: int, bid: int) -> None:
             if i and i not in seen:
                 seen.add(i); tg.append(i)
 
-    # 1) груповий чат: окремий чат броней, інакше загальний робочий чат.
-    # Броні шлемо туди незалежно від тумблера звернень — заявка не має загубитись.
-    if CFG.get("bkchat"):
-        add(CFG["bkchat"])
-    elif CFG.get("chat_id"):
-        add(CFG["chat_id"])
-    # 2) власник + усі, хто має доступ до заявок (full і tickets), окрім заблокованих
+    # 1) груповий чат — тільки коли власник увімкнув цю опцію
+    if CFG.get("bkgroup", "1") == "1":
+        if CFG.get("bkchat"):
+            add(CFG["bkchat"])
+        elif CFG.get("chat_id"):
+            add(CFG["chat_id"])
+    # 2) власник + усі, хто працює із заявками
     add(OWNER_ID)
     for a in await qa("SELECT id,role FROM admins WHERE role IN ('owner','full','tickets')"):
         add(a["id"])
@@ -2036,10 +2245,46 @@ async def cb_book(c: CallbackQuery) -> None:
             await bk_start(c, uid); return
         which = "from" if st.get("k") == "bk_pick_from" else "to"
         await bk_take(c, uid, picks[i], which); return
-    if act == "c":                         # обрано клас → контрольна зведення
+    if act == "c":                         # обрано клас
         if not st.get("hours"):
             await bk_start(c, uid); return
-        await bk_price(c, uid, "l" if arg == "l" else "c"); return
+        st["cls"] = "l" if arg == "l" else "c"
+        ST[uid] = st
+        # перший прохід — питаємо пасажирів; якщо вже все обрано, показуємо зведення
+        if st.get("tdate"):
+            await bk_price(c, uid, st["cls"])
+        else:
+            await bk_pax(c, uid)
+        return
+    if act == "pax":                       # лічильники пасажирів
+        if not st.get("hours"):
+            await bk_start(c, uid); return
+        who = arg
+        sign = p[3] if len(p) > 3 else ""
+        key = {"a": "adults", "s": "seniors", "k": "kids"}.get(who)
+        if key:
+            cur = I(st.get(key, 1 if key == "adults" else 0))
+            cur = cur + 1 if sign == "+" else cur - 1
+            st[key] = max(0, min(20, cur))
+            tot = I(st.get("adults", 0)) + I(st.get("seniors", 0)) + I(st.get("kids", 0))
+            if tot > 20:                   # більше 20 місць — це вже окрема домовленість
+                st[key] = max(0, st[key] - 1)
+                await c.answer(await T("bk_maxpax", await ulang(uid)), show_alert=True)
+            ST[uid] = st
+        await bk_pax(c, uid); return
+    if act == "date":                      # календар
+        if not st.get("hours"):
+            await bk_start(c, uid); return
+        await bk_date(c, uid, I(arg)); return
+    if act == "d":                         # обрано дату
+        if not st.get("hours"):
+            await bk_start(c, uid); return
+        with suppress(Exception):
+            import datetime as _dt
+            _dt.date.fromisoformat(arg)
+            st["tdate"] = arg
+            ST[uid] = st
+        await bk_price(c, uid, st.get("cls", "c")); return
     if act == "ok":                        # підтвердження броні
         if not st.get("hours"):
             await bk_start(c, uid); return
@@ -2775,7 +3020,8 @@ async def bk_list(ev, uid: int, page: int = 0) -> None:
         await render(ev, "⚙️ Панель › 🟢 <b>Бронювання</b>\n\n"
                          "Заявок ще немає. Вони з'являться тут, щойно клієнт\n"
                          "розрахує поїздку через кнопку «Забронювати».",
-                     kb([[B("💶 Тарифи", "p:bo:tar:c:0")], BOTTOM("p:home")]))
+                     kb([[B("💶 Тарифи", "p:bo:tar:c:0"), B("⚙️ Налаштування", "p:bo:set")],
+                         BOTTOM("p:home")]))
         return
     pages = max(1, (total + per - 1) // per)
     page = max(0, min(page, pages - 1))
@@ -2787,11 +3033,12 @@ async def bk_list(ev, uid: int, page: int = 0) -> None:
         who = (b["name"] or b["uid"])
         un = f" @{b['uname']}" if b["uname"] else ""
         cls = "✨" if b["cls"] == "l" else "💺"
+        ds = bk_dshow(b["tdate"] or "") if b["tdate"] else "—"
         lines.append(f"{mark} <b>#{b['id']}</b> {esc(str(who))}{esc(un)}\n"
                      f"    📍 {esc(b['afrom'][:34])}\n"
                      f"    🏁 {esc(b['ato'][:34])}\n"
-                     f"    {cls} {b['hours']:.0f} год · <b>{b['eur']} €</b> / {b['uah']} грн"
-                     f" · {ts(b['created'])}")
+                     f"    📅 {esc(ds)} · 👥 {I(b['pax']) or 1} · {cls}\n"
+                     f"    <b>{b['eur']} €</b> / {b['uah']} грн · {ts(b['created'])}")
     rows = []
     nav = []
     if page > 0:
@@ -2804,7 +3051,8 @@ async def bk_list(ev, uid: int, page: int = 0) -> None:
         rows.append(nav)
     # по кнопці на кожну заявку — щоб відкрити картку й керувати нею
     rows += grid([B(f"#{b['id']}", f"p:bo:c:{b['id']}") for b in rs], 3)
-    rows.append([B("💶 Тарифи", "p:bo:tar:c:0"), B("📥 CSV", "p:bo:exp")])
+    rows.append([B("💶 Тарифи", "p:bo:tar:c:0"), B("⚙️ Налаштування", "p:bo:set")])
+    rows.append([B("📥 CSV", "p:bo:exp")])
     done = await scalar("SELECT COUNT(*) FROM book WHERE status='done'") or 0
     if done:
         rows.append([B(f"🧹 Очистити опрацьовані ({done})", "p:bo:clr")])
@@ -2812,6 +3060,34 @@ async def bk_list(ev, uid: int, page: int = 0) -> None:
     await render(ev, f"⚙️ Панель › 🟢 <b>Бронювання</b>\n\n"
                      f"Усього заявок: <b>{total}</b> · 🔴 нових: <b>{new}</b>\n"
                      f"━━━━━━━━━━━━━━━━━━\n" + "\n\n".join(lines), kb(rows))
+
+
+async def bk_setup(ev, uid: int) -> None:
+    """Налаштування бронювання: знижки, рейси, куди слати заявки."""
+    grp = CFG.get("bkgroup", "1") == "1"
+    chat = CFG.get("bkchat") or CFG.get("chat_id") or "—"
+    tm = bk_times()
+    txt = (f"⚙️ Панель › 🟢 Бронювання › ⚙️ <b>Налаштування</b>\n\n"
+           f"<b>Знижки</b> (рахуються автоматично)\n"
+           f"👵 Пенсіонери: <b>−{CFG.get('bkpens','10')}%</b>\n"
+           f"🧒 Діти до 16: <b>−{CFG.get('bkkids','15')}%</b>\n\n"
+           f"<b>Рейси</b> (щодня)\n"
+           f"💺 COMFORT: <b>{esc(tm['c'])}</b>\n"
+           f"✨ LUX: <b>{esc(tm['l'])}</b>\n"
+           f"📅 Календар на: <b>{CFG.get('bkdays','14')} дн.</b>\n\n"
+           f"<b>Куди йдуть броні</b>\n"
+           f"📥 У груповий чат: {'✅ увімк.' if grp else '⬜ вимк.'}"
+           + (f" · <code>{esc(str(chat))}</code>" if grp else "") + "\n"
+           f"👮 Власник і адміни: ✅ завжди\n\n"
+           f"➕ До часу з карт: <b>{CFG.get('bkadd','3')} год</b>")
+    rows = [[B(f"👵 Пенсіонери: −{CFG.get('bkpens','10')}%", "p:bo:sp"),
+             B(f"🧒 Діти: −{CFG.get('bkkids','15')}%", "p:bo:sk")],
+            [B(f"💺 COMFORT: {tm['c']}", "p:bo:stc"), B(f"✨ LUX: {tm['l']}", "p:bo:stl")],
+            [B(f"📅 Календар: {CFG.get('bkdays','14')} дн.", "p:bo:sd")],
+            [B(f"📥 У груповий чат: {'✅ увімк.' if grp else '⬜ вимк.'}", "p:bo:grp")],
+            [B(f"➕ Надбавка: {CFG.get('bkadd','3')} год", "p:bo:add")],
+            [B("⬅️ До заявок", "p:bo:l:0")], BOTTOM("p:home")]
+    await render(ev, txt, kb(rows))
 
 
 async def bk_card(ev, uid: int, bid: int, ask: bool = False) -> None:
@@ -2824,6 +3100,14 @@ async def bk_card(ev, uid: int, bid: int, ask: bool = False) -> None:
         return
     cls = "✨ LUX" if b["cls"] == "l" else "💺 COMFORT"
     un = f" @{b['uname']}" if b["uname"] else ""
+    pp = []
+    if I(b["adults"]):
+        pp.append(f"👤 дорослих: {I(b['adults'])}")
+    if I(b["seniors"]):
+        pp.append(f"👵 пенсіонерів: {I(b['seniors'])}")
+    if I(b["kids"]):
+        pp.append(f"🧒 дітей: {I(b['kids'])}")
+    date_s = bk_dshow(b["tdate"] or "") if b["tdate"] else "—"
     txt = (f"⚙️ Панель › 🟢 <b>Заявка #{b['id']}</b>\n"
            f"━━━━━━━━━━━━━━━━━━\n"
            f"{'🔴 Нова' if b['status'] == 'new' else '✅ Опрацьована'}\n\n"
@@ -2831,9 +3115,14 @@ async def bk_card(ev, uid: int, bid: int, ask: bool = False) -> None:
            f"🆔 <code>{b['uid']}</code>\n\n"
            f"📍 <b>Звідки:</b> {esc(b['afrom'])}\n"
            f"🏁 <b>Куди:</b> {esc(b['ato'])}\n"
+           f"📅 <b>Дата:</b> {esc(date_s)} · 🕗 {esc(b['ttime'] or '—')}\n"
            f"📏 {b['km']:.0f} км · 🕐 {fmt_hours(b['hours'])}\n\n"
-           f"🚌 {cls}\n"
+           f"👥 <b>Пасажирів: {I(b['pax']) or 1}</b>\n"
+           + ("\n".join("    " + x for x in pp) + "\n" if pp else "") +
+           f"\n🚌 {cls}\n"
            f"💰 <b>{b['eur']} €</b> / {b['uah']:,} грн".replace(",", " ") + "\n"
+           + (f"<i>без пільг: {I(b['eur_full'])} € / {I(b['uah_full']):,} грн</i>\n".replace(",", " ")
+              if I(b["disc"]) else "") +
            f"🕐 {ts(b['created'])}")
     if ask:
         txt += "\n\n⚠️ <b>Видалити заявку?</b> Дію не можна скасувати."
@@ -3059,6 +3348,38 @@ async def admin_input(m: Message, st: dict) -> None:
         ST.pop(uid, None)
         await m.answer(f"✅ До часу з карт додається {nums[0]} год")
         await bk_tariffs(m, uid, "c", 0); return
+
+    if k in ("bk_sp", "bk_sk"):           # знижки у відсотках
+        nums = re.findall(r"\d+", text or "")
+        if not nums:
+            await m.answer("⚠️ Надішліть число, наприклад <code>10</code>"); return
+        v = max(0, min(90, I(nums[0])))
+        await setcfg("bkpens" if k == "bk_sp" else "bkkids", str(v))
+        ST.pop(uid, None)
+        await m.answer(f"✅ Знижка: {v}%")
+        await bk_setup(m, uid); return
+
+    if k in ("bk_stc", "bk_stl"):         # час виїзду
+        mt = re.search(r"(\d{1,2})\D{0,2}(\d{2})", text or "")
+        if not mt:
+            await m.answer("⚠️ Надішліть час, наприклад <code>08:00</code>"); return
+        hh, mm = I(mt.group(1)), I(mt.group(2))
+        if hh > 23 or mm > 59:
+            await m.answer("⚠️ Такого часу не буває. Приклад: <code>08:00</code>"); return
+        await setcfg("bkc_time" if k == "bk_stc" else "bkl_time", f"{hh:02d}:{mm:02d}")
+        ST.pop(uid, None)
+        await m.answer(f"✅ Виїзд о {hh:02d}:{mm:02d}")
+        await bk_setup(m, uid); return
+
+    if k == "bk_sd":                      # глибина календаря
+        nums = re.findall(r"\d+", text or "")
+        if not nums:
+            await m.answer("⚠️ Надішліть число, наприклад <code>14</code>"); return
+        v = max(1, min(60, I(nums[0])))
+        await setcfg("bkdays", str(v))
+        ST.pop(uid, None)
+        await m.answer(f"✅ Календар на {v} дн.")
+        await bk_setup(m, uid); return
 
     if k == "bk_reply":                   # відповідь клієнту по заявці
         if not text and not mid:
@@ -3939,6 +4260,26 @@ async def panel_cb(c: CallbackQuery) -> None:
                 f"Надішліть нову ціну у форматі:\n<code>170 8840</code>\n"
                 f"<i>(євро, потім гривні через пробіл)</i>")
             return
+        if arg == "set":                  # налаштування бронювання
+            await bk_setup(c, uid); return
+        if arg == "grp":                  # тумблер «слати в груповий чат»
+            await setcfg("bkgroup", "0" if CFG.get("bkgroup", "1") == "1" else "1")
+            await bk_setup(c, uid); return
+        if arg in ("sp", "sk", "stc", "stl", "sd"):
+            ST[uid] = {"k": {"sp": "bk_sp", "sk": "bk_sk", "stc": "bk_stc",
+                             "stl": "bk_stl", "sd": "bk_sd"}[arg]}
+            hint = {"sp": ("👵 Знижка пенсіонерам", f"Зараз: {CFG.get('bkpens','10')}%",
+                           "Надішліть число у відсотках, наприклад <code>10</code>"),
+                    "sk": ("🧒 Знижка дітям до 16", f"Зараз: {CFG.get('bkkids','15')}%",
+                           "Надішліть число у відсотках, наприклад <code>15</code>"),
+                    "stc": ("💺 Час виїзду COMFORT", f"Зараз: {bk_times()['c']}",
+                            "Надішліть час, наприклад <code>08:00</code>"),
+                    "stl": ("✨ Час виїзду LUX", f"Зараз: {bk_times()['l']}",
+                            "Надішліть час, наприклад <code>18:00</code>"),
+                    "sd": ("📅 Глибина календаря", f"Зараз: {CFG.get('bkdays','14')} дн.",
+                           "Надішліть кількість днів, наприклад <code>14</code>")}[arg]
+            await c.message.answer(f"<b>{hint[0]}</b>\n\n{hint[1]}\n\n{hint[2]}")
+            return
         if arg == "add":                  # змінити надбавку годин
             ST[uid] = {"k": "bk_add"}
             await c.message.answer(
@@ -3985,12 +4326,16 @@ async def panel_cb(c: CallbackQuery) -> None:
             buf = io.StringIO()
             w = csv.writer(buf)
             w.writerow(["id", "user_id", "username", "name", "from", "to", "km", "hours",
-                        "class", "eur", "uah", "status", "created"])
+                        "class", "date", "time", "adults", "seniors", "kids", "pax",
+                        "eur", "uah", "eur_full", "uah_full", "saved", "status", "created"])
             for r in rs:
                 w.writerow([r["id"], r["uid"], r["uname"], r["name"], r["afrom"], r["ato"],
                             f"{r['km']:.0f}", f"{r['hours']:.1f}",
                             "LUX" if r["cls"] == "l" else "COMFORT",
-                            r["eur"], r["uah"], r["status"], ts(r["created"])])
+                            r["tdate"] or "", r["ttime"] or "",
+                            I(r["adults"]), I(r["seniors"]), I(r["kids"]), I(r["pax"]) or 1,
+                            r["eur"], r["uah"], I(r["eur_full"]), I(r["uah_full"]),
+                            I(r["disc"]), r["status"], ts(r["created"])])
             await c.message.answer_document(
                 BufferedInputFile(buf.getvalue().encode("utf-8-sig"), "bookings.csv"),
                 caption="📥 Заявки на бронювання")
