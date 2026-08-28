@@ -1470,7 +1470,6 @@ async def panel_home(ev, uid: int) -> None:
         rows = [[B("📄 Розділи бота", "p:sec"), B("👁 Живе редагування", "p:live")],
                 [B("📨 Звернення" + (f" 🔴{new}" if new else ""), "p:t:list:new:0"), B("👥 Користувачі", "p:u:0")],
                 [B("📢 Розсилка", "p:b:menu"), B("📊 Статистика", "p:stat")],
-                [B("🖱 Натискання кнопок", "p:cl:0:0")],
                 [B("🌍 Мови", "p:langs"), B("🖼 Медіа", "p:medial")],
                 [B("⚙️ Налаштування", "p:s:menu"), B("👮 Адміни", "p:a:list")],
                 [B("💾 Бекап", "p:bk"), B("❌ Вийти", "p:exit")]]
@@ -1874,6 +1873,7 @@ async def clicks_view(ev, uid: int, page: int = 0) -> None:
     if nav:
         rows.append(nav)
     rows.append([B("👤 За людьми", "p:cl:u:0"), B("📥 CSV", "p:cl:exp")])
+    rows.append([B("⬅️ До статистики", "p:stat")])
     rows.append(BOTTOM("p:home"))
     await render(ev, f"⚙️ Панель › 🖱 <b>Натискання кнопок</b>\n\n"
                      f"Всього натискань: <b>{alltap}</b> · людей: <b>{allppl}</b>\n"
@@ -2035,7 +2035,8 @@ async def stats_view(ev, uid: int) -> None:
                      f"👥 Користувачів: <b>{users}</b>\n   +{d1} за добу · +{d7} за тиждень\n"
                      f"📨 Звернень: <b>{tk}</b> (🔴 {tnew} нових)\n   +{t7} за тиждень\n\n"
                      f"🔥 <b>Популярні розділи:</b>\n" + ("\n".join(tl) or "—"),
-                 kb([[B("📥 Експорт користувачів", "p:u:exp"), B("📥 Експорт звернень", "p:t:exp")],
+                 kb([[B("🖱 Натискання кнопок", "p:cl:0:0")],
+                     [B("📥 Експорт користувачів", "p:u:exp"), B("📥 Експорт звернень", "p:t:exp")],
                      BOTTOM("p:home")]))
 
 
