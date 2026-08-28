@@ -1145,9 +1145,10 @@ async def geocode(query: str, lang: str = "uk") -> list[dict]:
                     out.append({"name": _short_addr(r["display_name"]),
                                 "lat": float(r["lat"]), "lon": float(r["lon"])})
         if not out:      # запасний геокодер — інша база, ловить те, що не знайшов OSM
-            u = "https://photon.komoot.io/api/?" + urllib.parse.urlencode(
-                {"q": q, "limit": 6,
-                 "lang": lang if lang in ("uk", "ru", "de", "fr", "it", "en") else "en"})
+            pq = {"q": q, "limit": 6}
+            if lang in ("de", "fr", "it", "en"):
+                pq["lang"] = lang
+            u = "https://photon.komoot.io/api/?" + urllib.parse.urlencode(pq)
             d = await _fetch(u)
             for f in (d or {}).get("features", [])[:6]:
                 p, g = f.get("properties", {}), f.get("geometry", {}).get("coordinates")
@@ -1169,6 +1170,92 @@ async def geocode(query: str, lang: str = "uk") -> list[dict]:
         await ex("INSERT OR REPLACE INTO geocache(q,data,ts) VALUES(?,?,?)",
                  ck, json.dumps(out, ensure_ascii=False), now())
     return out
+
+
+def _addr_score(street: str, house: str, city: str) -> int:
+    """Наскільки адреса конкретна: вулиця+будинок краще за просто район."""
+    return (4 if house else 0) + (3 if street else 0) + (1 if city else 0)
+
+
+async def revgeo(lat: float, lon: float, lang: str = "uk") -> str:
+    """Координати → максимально точна адреса (для геолокації від клієнта).
+
+    Опитуємо кілька сервісів і обираємо найдетальніший результат:
+    «вулиця + будинок» краще за «вулиця», а вона — за «район»."""
+    try:
+        lat, lon = float(lat), float(lon)
+    except (TypeError, ValueError):
+        return ""
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return ""
+    ck = hashlib.md5(f"rev|{lang}|{lat:.5f},{lon:.5f}".encode()).hexdigest()
+    row = await q1("SELECT data,ts FROM geocache WHERE q=?", ck)
+    if row and now() - (row["ts"] or 0) < GEO_TTL:
+        with suppress(Exception):
+            c = json.loads(row["data"])
+            if c and c[0].get("name"):
+                return c[0]["name"]
+
+    cands: list[tuple[int, str]] = []
+
+    def take(street, house, city, country) -> None:
+        street = " ".join((street or "").split())
+        house = " ".join((house or "").split())
+        city = " ".join((city or "").split())
+        nm = ", ".join(x for x in [
+            " ".join(y for y in [street, house] if y), city, (country or "").strip()] if x)
+        if nm:
+            cands.append((_addr_score(street, house, city), " ".join(nm.split())))
+
+    if GMAPS_KEY:
+        u = ("https://maps.googleapis.com/maps/api/geocode/json?"
+             + urllib.parse.urlencode({"latlng": f"{lat},{lon}", "language": lang,
+                                       "result_type": "street_address|premise|route",
+                                       "key": GMAPS_KEY}))
+        d = await _fetch(u)
+        for r in (d or {}).get("results", [])[:2]:
+            g = {t: c.get("long_name", "") for c in r.get("address_components", [])
+                 for t in c.get("types", [])}
+            take(g.get("route"), g.get("street_number"),
+                 g.get("locality") or g.get("administrative_area_level_2"), g.get("country"))
+            if not cands and r.get("formatted_address"):
+                cands.append((2, _short_addr(r["formatted_address"])))
+
+    u = ("https://nominatim.openstreetmap.org/reverse?"
+         + urllib.parse.urlencode({"lat": lat, "lon": lon, "format": "jsonv2",
+                                   "zoom": 18, "addressdetails": 1,
+                                   "accept-language": f"{lang},uk,en"}))
+    d = await _fetch(u, {"User-Agent": HTTP_UA})
+    a = (d or {}).get("address") or {}
+    if a:
+        take(a.get("road") or a.get("pedestrian") or a.get("footway")
+             or a.get("residential") or a.get("neighbourhood") or a.get("suburb"),
+             a.get("house_number"),
+             a.get("city") or a.get("town") or a.get("village")
+             or a.get("municipality") or a.get("county"),
+             a.get("country"))
+
+    # Photon опитуємо завжди, коли ще немає вулиці з будинком — інша база,
+    # часто знає номер будинку там, де OSM-reverse віддав лише район.
+    if not cands or max(c[0] for c in cands) < 7:
+        # шлях саме /reverse (не /api/reverse), і мову підтримує лише короткий список
+        pq = {"lat": lat, "lon": lon, "limit": 5}
+        if lang in ("de", "fr", "it", "en"):
+            pq["lang"] = lang
+        d = await _fetch("https://photon.komoot.io/reverse?" + urllib.parse.urlencode(pq))
+        for f in (d or {}).get("features", [])[:5]:
+            p = f.get("properties", {})
+            take(p.get("street") or p.get("name"), p.get("housenumber"),
+                 p.get("city") or p.get("district") or p.get("county"), p.get("country"))
+
+    if not cands:
+        return ""
+    cands.sort(key=lambda x: (-x[0], len(x[1])))
+    name = cands[0][1]
+    await ex("INSERT OR REPLACE INTO geocache(q,data,ts) VALUES(?,?,?)",
+             ck, json.dumps([{"name": name, "lat": lat, "lon": lon}],
+                            ensure_ascii=False), now())
+    return name
 
 
 async def route_calc(lat1: float, lon1: float, lat2: float, lon2: float) -> tuple[float, float] | None:
@@ -1782,7 +1869,8 @@ async def bk_notify(bot: Bot, uid: int, bid: int) -> None:
            f"💰 <b>{b['eur']} €</b> / {b['uah']:,} грн".replace(",", " ") + "\n"
            f"🕐 {ts(b['created'])}")
     rows = kb([[B("✍️ Написати клієнту", f"p:bo:w:{bid}")],
-               [B("✅ Опрацьовано", f"p:bo:done:{bid}")]])
+               [B("✅ Опрацьовано", f"p:bo:done:{bid}")],
+               [B("🗂 Картка заявки", f"p:bo:c:{bid}")]])
     seen: set[int] = set()
     tg: list[int] = []
 
@@ -1811,11 +1899,26 @@ async def bk_input(m: Message, uid: int, st: dict) -> None:
     """Клієнт написав адресу (або надіслав геолокацію)."""
     lang = await ulang(uid)
     which = "from" if st["k"] == "bk_from" else "to"
-    loc = getattr(m, "location", None)
-    if loc:                                    # геолокація — координати вже є
-        found = [{"name": {"uk": "Моє місцезнаходження", "ru": "Моё местоположение",
-                           "pl": "Moja lokalizacja", "en": "My location"}[lang],
-                  "lat": loc.latitude, "lon": loc.longitude}]
+    loc = getattr(m, "location", None) or getattr(m, "venue", None)
+    if loc:
+        # Геолокація: координати вже є, але клієнту й менеджеру потрібна
+        # людська адреса — визначаємо її зворотним геокодуванням.
+        la = getattr(loc, "latitude", None)
+        lo = getattr(loc, "longitude", None)
+        if la is None and getattr(loc, "location", None):      # venue
+            la, lo = loc.location.latitude, loc.location.longitude
+        wait = None
+        with suppress(Exception):
+            wait = await m.answer(await T("bk_wait", lang))
+        addr = await revgeo(la, lo, lang)
+        with suppress(Exception):
+            if wait:
+                await wait.delete()
+        if not addr:
+            addr = {"uk": "Точка на карті", "ru": "Точка на карте",
+                    "pl": "Punkt na mapie", "en": "Point on the map"}.get(lang, "Точка на карті")
+            addr += f" ({la:.5f}, {lo:.5f})"
+        found = [{"name": addr, "lat": la, "lon": lo}]
     else:
         q = (m.text or m.caption or "").strip()
         if len(q) < 3:
@@ -2699,11 +2802,51 @@ async def bk_list(ev, uid: int, page: int = 0) -> None:
         nav.append(B("▶️", f"p:bo:l:{page+1}"))
     if nav:
         rows.append(nav)
+    # по кнопці на кожну заявку — щоб відкрити картку й керувати нею
+    rows += grid([B(f"#{b['id']}", f"p:bo:c:{b['id']}") for b in rs], 3)
     rows.append([B("💶 Тарифи", "p:bo:tar:c:0"), B("📥 CSV", "p:bo:exp")])
+    done = await scalar("SELECT COUNT(*) FROM book WHERE status='done'") or 0
+    if done:
+        rows.append([B(f"🧹 Очистити опрацьовані ({done})", "p:bo:clr")])
     rows.append(BOTTOM("p:home"))
     await render(ev, f"⚙️ Панель › 🟢 <b>Бронювання</b>\n\n"
                      f"Усього заявок: <b>{total}</b> · 🔴 нових: <b>{new}</b>\n"
                      f"━━━━━━━━━━━━━━━━━━\n" + "\n\n".join(lines), kb(rows))
+
+
+async def bk_card(ev, uid: int, bid: int, ask: bool = False) -> None:
+    """Картка заявки: усе про поїздку + керування, зокрема видалення."""
+    b = await q1("SELECT b.*,u.uname,u.name FROM book b LEFT JOIN users u ON u.id=b.uid "
+                 "WHERE b.id=?", bid)
+    if not b:
+        await render(ev, "⚙️ Панель › 🟢 <b>Бронювання</b>\n\nЗаявку вже видалено.",
+                     kb([[B("⬅️ До списку", "p:bo:l:0")], BOTTOM("p:home")]))
+        return
+    cls = "✨ LUX" if b["cls"] == "l" else "💺 COMFORT"
+    un = f" @{b['uname']}" if b["uname"] else ""
+    txt = (f"⚙️ Панель › 🟢 <b>Заявка #{b['id']}</b>\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
+           f"{'🔴 Нова' if b['status'] == 'new' else '✅ Опрацьована'}\n\n"
+           f"👤 {esc(str(b['name'] or b['uid']))}{esc(un)}\n"
+           f"🆔 <code>{b['uid']}</code>\n\n"
+           f"📍 <b>Звідки:</b> {esc(b['afrom'])}\n"
+           f"🏁 <b>Куди:</b> {esc(b['ato'])}\n"
+           f"📏 {b['km']:.0f} км · 🕐 {fmt_hours(b['hours'])}\n\n"
+           f"🚌 {cls}\n"
+           f"💰 <b>{b['eur']} €</b> / {b['uah']:,} грн".replace(",", " ") + "\n"
+           f"🕐 {ts(b['created'])}")
+    if ask:
+        txt += "\n\n⚠️ <b>Видалити заявку?</b> Дію не можна скасувати."
+        rows = [[B("🗑 Так, видалити", f"p:bo:del:{b['id']}")],
+                [B("↩️ Ні, залишити", f"p:bo:c:{b['id']}")],
+                BOTTOM("p:bo:l:0")]
+    else:
+        rows = [[B("✍️ Написати клієнту", f"p:bo:w:{b['id']}")],
+                [B("✅ Опрацьовано", f"p:bo:done:{b['id']}:card")] if b["status"] == "new"
+                else [B("🔄 Повернути в нові", f"p:bo:new:{b['id']}")],
+                [B("🗑 Видалити заявку", f"p:bo:ask:{b['id']}")],
+                BOTTOM("p:bo:l:0")]
+    await render(ev, txt, kb(rows))
 
 
 async def bk_tariffs(ev, uid: int, cls: str = "c", page: int = 0) -> None:
@@ -3809,10 +3952,31 @@ async def panel_cb(c: CallbackQuery) -> None:
                 await c.message.answer(f"✍️ Напишіть повідомлення для клієнта "
                                        f"(заявка #{b['id']}). Воно піде йому в бот.")
             return
+        if arg == "c":                    # картка заявки
+            await bk_card(c, uid, I(arg2)); return
+        if arg == "ask":                  # запит підтвердження видалення
+            await bk_card(c, uid, I(arg2), ask=True); return
+        if arg == "del":                  # видалити заявку
+            b = await q1("SELECT id FROM book WHERE id=?", I(arg2))
+            if b:
+                await ex("DELETE FROM book WHERE id=?", I(arg2))
+                log.info("заявку #%s видалив %s", I(arg2), uid)
+            await c.answer("🗑 Видалено")
+            await bk_list(c, uid, 0); return
+        if arg == "clr":                  # прибрати всі опрацьовані
+            n = await scalar("SELECT COUNT(*) FROM book WHERE status='done'") or 0
+            await ex("DELETE FROM book WHERE status='done'")
+            await c.answer(f"🧹 Видалено: {n}")
+            await bk_list(c, uid, 0); return
+        if arg == "new":                  # повернути в нові
+            await ex("UPDATE book SET status='new' WHERE id=?", I(arg2))
+            await bk_card(c, uid, I(arg2)); return
         if arg == "done":
             await ex("UPDATE book SET status='done' WHERE id=?", I(arg2))
             await c.answer("✅")
-            with suppress(Exception):
+            if arg3 == "card":            # натиснуто в картці — оновлюємо картку
+                await bk_card(c, uid, I(arg2)); return
+            with suppress(Exception):     # натиснуто під сповіщенням — просто знімаємо кнопки
                 await c.message.edit_reply_markup(reply_markup=None)
             return
         if arg == "exp":
