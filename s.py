@@ -238,6 +238,10 @@ CREATE TABLE IF NOT EXISTS replies(id INTEGER PRIMARY KEY AUTOINCREMENT, tid INT
   body TEXT, mtype TEXT DEFAULT '', mid TEXT DEFAULT '', mgr TEXT DEFAULT '', created INTEGER);
 CREATE INDEX IF NOT EXISTS replies_tid ON replies(tid);
 CREATE INDEX IF NOT EXISTS replies_uid ON replies(uid);
+CREATE TABLE IF NOT EXISTS clicks(uid INTEGER, node INTEGER, cnt INTEGER DEFAULT 0,
+  first INTEGER, last INTEGER, PRIMARY KEY(uid,node));
+CREATE INDEX IF NOT EXISTS clicks_node ON clicks(node);
+CREATE INDEX IF NOT EXISTS clicks_last ON clicks(last);
 CREATE TABLE IF NOT EXISTS hist(id INTEGER PRIMARY KEY AUTOINCREMENT, node INTEGER, lang TEXT,
   body TEXT, ts INTEGER);
 CREATE TABLE IF NOT EXISTS trash(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, data TEXT);
@@ -1149,6 +1153,13 @@ async def show_node(ev: Message | CallbackQuery, nid: int, uid: int) -> None:
     text = t["body"] or ""
     if nid != 1:
         await ex("UPDATE nodes SET views=views+1 WHERE id=?", nid)
+        # Хто саме натиснув: один рядок на пару «людина + кнопка», лічильник росте.
+        # Адмінів не рахуємо — інакше статистика заб'ється власними перевірками.
+        if not admin:
+            with suppress(Exception):
+                await ex("INSERT INTO clicks(uid,node,cnt,first,last) VALUES(?,?,1,?,?) "
+                         "ON CONFLICT(uid,node) DO UPDATE SET cnt=cnt+1, last=excluded.last",
+                         uid, nid, now(), now())
     markup = await build_kb(nid, lang, admin, uid in LIVE)
     if not text and nid != 1:
         parent_t = await node_tr(nid, lang)
@@ -1459,6 +1470,7 @@ async def panel_home(ev, uid: int) -> None:
         rows = [[B("📄 Розділи бота", "p:sec"), B("👁 Живе редагування", "p:live")],
                 [B("📨 Звернення" + (f" 🔴{new}" if new else ""), "p:t:list:new:0"), B("👥 Користувачі", "p:u:0")],
                 [B("📢 Розсилка", "p:b:menu"), B("📊 Статистика", "p:stat")],
+                [B("🖱 Натискання кнопок", "p:cl:0:0")],
                 [B("🌍 Мови", "p:langs"), B("🖼 Медіа", "p:medial")],
                 [B("⚙️ Налаштування", "p:s:menu"), B("👮 Адміни", "p:a:list")],
                 [B("💾 Бекап", "p:bk"), B("❌ Вийти", "p:exit")]]
@@ -1815,6 +1827,168 @@ async def users_view(ev, uid: int, page: int) -> None:
                      f"Всього: <b>{total}</b> · активних за 7 днів: {act}\n"
                      f"Писали в підтримку: {wrote} · заблоковано: {banned}\n"
                      f"Мови: {ls}\n━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines), kb(rows))
+
+
+def plural(n: int, one: str, few: str, many: str) -> str:
+    """Українське відмінювання: 1 особа · 2 особи · 5 осіб."""
+    n = abs(int(n))
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
+
+
+async def clicks_view(ev, uid: int, page: int = 0) -> None:
+    """Рейтинг кнопок: скільки натискань і скільки різних людей."""
+    lang = el(uid)
+    per = 8
+    total = await scalar("SELECT COUNT(DISTINCT node) FROM clicks") or 0
+    if not total:
+        await render(ev, "⚙️ Панель › 🖱 <b>Натискання кнопок</b>\n\n"
+                         "Поки що порожньо — статистика почне збиратись,\n"
+                         "щойно клієнти натиснуть кнопки в боті.\n\n"
+                         "<i>Ваші власні натискання не рахуються.</i>",
+                     kb([[B("👤 За людьми", "p:cl:u:0")], BOTTOM("p:home")]))
+        return
+    pages = max(1, (total + per - 1) // per)
+    page = max(0, min(page, pages - 1))
+    rs = await qa("SELECT node, SUM(cnt) c, COUNT(*) ppl, MAX(last) last FROM clicks "
+                  "GROUP BY node ORDER BY c DESC LIMIT ? OFFSET ?", per, page * per)
+    alltap = await scalar("SELECT SUM(cnt) FROM clicks") or 0
+    allppl = await scalar("SELECT COUNT(DISTINCT uid) FROM clicks") or 0
+    lines, rows = [], []
+    for i, r in enumerate(rs, page * per + 1):
+        t = await node_tr(r["node"], lang)
+        nm = (t["label"] or f"#{r['node']}")[:26]
+        ppl = plural(r["ppl"], "особа", "особи", "осіб")
+        lines.append(f"{i}. {esc(nm)}\n    🖱 <b>{r['c']}</b> · 👤 {r['ppl']} {ppl} · {ts(r['last'])}")
+        rows.append([B(f"{nm[:22]} · {r['c']}", f"p:cl:n:{r['node']}:0")])
+    nav = []
+    if page > 0:
+        nav.append(B("◀️", f"p:cl:0:{page-1}"))
+    if pages > 1:
+        nav.append(B(f"{page+1}/{pages}", "p:noop"))
+    if page + 1 < pages:
+        nav.append(B("▶️", f"p:cl:0:{page+1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([B("👤 За людьми", "p:cl:u:0"), B("📥 CSV", "p:cl:exp")])
+    rows.append(BOTTOM("p:home"))
+    await render(ev, f"⚙️ Панель › 🖱 <b>Натискання кнопок</b>\n\n"
+                     f"Всього натискань: <b>{alltap}</b> · людей: <b>{allppl}</b>\n"
+                     f"━━━━━━━━━━━━━━━━━━\n" + "\n".join(lines) +
+                     f"\n\n<i>Тисніть на кнопку, щоб побачити, хто саме її натискав.</i>", kb(rows))
+
+
+async def clicks_node(ev, uid: int, nid: int, page: int = 0) -> None:
+    """Хто натискав конкретну кнопку і скільки разів."""
+    lang = el(uid)
+    t = await node_tr(nid, lang)
+    nm = t["label"] or f"#{nid}"
+    per = 10
+    total = await scalar("SELECT COUNT(*) FROM clicks WHERE node=?", nid) or 0
+    pages = max(1, (total + per - 1) // per)
+    page = max(0, min(page, pages - 1))
+    rs = await qa("SELECT c.uid,c.cnt,c.last,u.uname,u.name,u.lang FROM clicks c "
+                  "LEFT JOIN users u ON u.id=c.uid WHERE c.node=? "
+                  "ORDER BY c.cnt DESC, c.last DESC LIMIT ? OFFSET ?", nid, per, page * per)
+    tot = await scalar("SELECT SUM(cnt) FROM clicks WHERE node=?", nid) or 0
+    lines = []
+    for i, r in enumerate(rs, page * per + 1):
+        who = r["name"] or r["uid"]
+        un = f" @{r['uname']}" if r["uname"] else ""
+        lines.append(f"{i}. {FLAG.get(r['lang'] or 'uk','')} {esc(who)}{esc(un)}\n"
+                     f"    🖱 <b>{r['cnt']}</b> {plural(r['cnt'],'раз','рази','разів')}"
+                     f" · востаннє {ts(r['last'])}")
+    rows = []
+    nav = []
+    if page > 0:
+        nav.append(B("◀️", f"p:cl:n:{nid}:{page-1}"))
+    if pages > 1:
+        nav.append(B(f"{page+1}/{pages}", "p:noop"))
+    if page + 1 < pages:
+        nav.append(B("▶️", f"p:cl:n:{nid}:{page+1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([B("⬅️ До рейтингу", "p:cl:0:0")])
+    rows.append(BOTTOM("p:home"))
+    await render(ev, f"⚙️ Панель › 🖱 Натискання › <b>{esc(nm[:30])}</b>\n\n"
+                     f"Всього: <b>{tot}</b> натискань від <b>{total}</b> "
+                     f"{plural(total,'особи','осіб','осіб')}\n"
+                     f"━━━━━━━━━━━━━━━━━━\n" + ("\n".join(lines) or "Поки ніхто не натискав."), kb(rows))
+
+
+async def clicks_users(ev, uid: int, page: int = 0) -> None:
+    """Найактивніші люди: скільки натискань і скільки різних кнопок."""
+    per = 10
+    total = await scalar("SELECT COUNT(DISTINCT uid) FROM clicks") or 0
+    pages = max(1, (total + per - 1) // per)
+    page = max(0, min(page, pages - 1))
+    rs = await qa("SELECT c.uid, SUM(c.cnt) tot, COUNT(*) btns, MAX(c.last) last, "
+                  "u.uname,u.name,u.lang FROM clicks c LEFT JOIN users u ON u.id=c.uid "
+                  "GROUP BY c.uid ORDER BY tot DESC LIMIT ? OFFSET ?", per, page * per)
+    lines, rows = [], []
+    for i, r in enumerate(rs, page * per + 1):
+        who = r["name"] or r["uid"]
+        un = f" @{r['uname']}" if r["uname"] else ""
+        lines.append(f"{i}. {FLAG.get(r['lang'] or 'uk','')} {esc(who)}{esc(un)}\n"
+                     f"    🖱 <b>{r['tot']}</b> · кнопок: {r['btns']} · {ts(r['last'])}")
+        rows.append([B(f"{str(who)[:20]} · {r['tot']}", f"p:cl:p:{r['uid']}:0")])
+    nav = []
+    if page > 0:
+        nav.append(B("◀️", f"p:cl:u:{page-1}"))
+    if pages > 1:
+        nav.append(B(f"{page+1}/{pages}", "p:noop"))
+    if page + 1 < pages:
+        nav.append(B("▶️", f"p:cl:u:{page+1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([B("🖱 За кнопками", "p:cl:0:0")])
+    rows.append(BOTTOM("p:home"))
+    await render(ev, f"⚙️ Панель › 🖱 Натискання › 👤 <b>За людьми</b>\n\n"
+                     f"Людей у статистиці: <b>{total}</b>\n"
+                     f"━━━━━━━━━━━━━━━━━━\n" + ("\n".join(lines) or "Поки порожньо.") +
+                     f"\n\n<i>Тисніть на людину, щоб побачити її кнопки.</i>", kb(rows))
+
+
+async def clicks_person(ev, uid: int, who: int, page: int = 0) -> None:
+    """Картка людини: які саме кнопки вона тиснула."""
+    lang = el(uid)
+    u = await q1("SELECT * FROM users WHERE id=?", who)
+    per = 10
+    total = await scalar("SELECT COUNT(*) FROM clicks WHERE uid=?", who) or 0
+    pages = max(1, (total + per - 1) // per)
+    page = max(0, min(page, pages - 1))
+    rs = await qa("SELECT node,cnt,first,last FROM clicks WHERE uid=? "
+                  "ORDER BY cnt DESC, last DESC LIMIT ? OFFSET ?", who, per, page * per)
+    tot = await scalar("SELECT SUM(cnt) FROM clicks WHERE uid=?", who) or 0
+    msgs = await scalar("SELECT COUNT(*) FROM tickets WHERE uid=?", who) or 0
+    lines = []
+    for i, r in enumerate(rs, page * per + 1):
+        t = await node_tr(r["node"], lang)
+        lines.append(f"{i}. {esc((t['label'] or '#'+str(r['node']))[:26])}\n"
+                     f"    🖱 <b>{r['cnt']}</b> {plural(r['cnt'],'раз','рази','разів')}"
+                     f" · востаннє {ts(r['last'])}")
+    nm = (u["name"] if u else None) or str(who)
+    un = f" @{u['uname']}" if u and u["uname"] else ""
+    rows = []
+    nav = []
+    if page > 0:
+        nav.append(B("◀️", f"p:cl:p:{who}:{page-1}"))
+    if pages > 1:
+        nav.append(B(f"{page+1}/{pages}", "p:noop"))
+    if page + 1 < pages:
+        nav.append(B("▶️", f"p:cl:p:{who}:{page+1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([B("⬅️ До списку людей", "p:cl:u:0")])
+    rows.append(BOTTOM("p:home"))
+    await render(ev, f"⚙️ Панель › 🖱 Натискання › 👤 <b>{esc(nm)}</b>{esc(un)}\n\n"
+                     f"🆔 <code>{who}</code>\n"
+                     f"🖱 Натискань: <b>{tot}</b> · різних кнопок: <b>{total}</b>\n"
+                     f"📨 Звернень: {msgs}\n"
+                     f"━━━━━━━━━━━━━━━━━━\n" + ("\n".join(lines) or "Поки порожньо."), kb(rows))
 
 
 async def settings_view(ev, uid: int) -> None:
@@ -2823,6 +2997,29 @@ async def panel_cb(c: CallbackQuery) -> None:
             return
 
     # ── пользователи ──
+    if sec == "cl":                       # 🖱 натискання кнопок
+        if arg == "n":                    # хто тиснув конкретну кнопку
+            await clicks_node(c, uid, I(arg2), I(arg3)); return
+        if arg == "p":                    # картка людини
+            await clicks_person(c, uid, I(arg2), I(arg3)); return
+        if arg == "u":                    # рейтинг людей
+            await clicks_users(c, uid, I(arg2)); return
+        if arg == "exp":
+            rs = await qa("SELECT c.uid,u.uname,u.name,c.node,c.cnt,c.first,c.last FROM clicks c "
+                          "LEFT JOIN users u ON u.id=c.uid ORDER BY c.cnt DESC")
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(["user_id", "username", "name", "button", "clicks", "first", "last"])
+            for r in rs:
+                t = await node_tr(r["node"], el(uid))
+                w.writerow([r["uid"], r["uname"], r["name"], t["label"] or f"#{r['node']}",
+                            r["cnt"], ts(r["first"]), ts(r["last"])])
+            await c.message.answer_document(
+                BufferedInputFile(buf.getvalue().encode("utf-8-sig"), "clicks.csv"),
+                caption="📥 Натискання кнопок")
+            return
+        await clicks_view(c, uid, I(arg2)); return
+
     if sec == "u":
         if arg == "find":
             ST[uid] = {"k": "find_u"}
