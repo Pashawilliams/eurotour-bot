@@ -172,7 +172,7 @@ asyncio.run(m(sys.argv[1]))
                        capture_output=True, text=True, timeout=60)
     out = r.stdout.strip()
     check(f"правки сохранились: {out}", "ВЛАСНИЙ" in out and "МОЯ КНОПКА" in out, r.stderr[:300])
-    check("разделы не задублировались", "разделов: 5" in out, out)
+    check("разделы не задублировались", "разделов: 6" in out, out)
 
 
 async def t_restart_timer():

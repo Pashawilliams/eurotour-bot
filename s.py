@@ -37,6 +37,7 @@ EUROTOUR Support Bot  ·  aiogram 3  ·  ОДИН ФАЙЛ, готовий до 
 from __future__ import annotations
 
 import asyncio, csv, hashlib, html, io, json, logging, os, re, signal, sys, time
+import urllib.parse
 from contextlib import suppress
 from typing import Any, Optional, Sequence
 
@@ -125,7 +126,7 @@ from aiogram.types import (BotCommand, BotCommandScopeChat, BufferedInputFile, C
 # ║                                                                          ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-TOKEN = ""   # ← на GitHub береться з секрету BOT_TOKEN
+TOKEN = ""   # ← токен від @BotFather
 
 ADMIN_ID = 7906546417   # ← ваш Telegram ID (тільки він бачить панель)
 
@@ -238,6 +239,16 @@ CREATE TABLE IF NOT EXISTS replies(id INTEGER PRIMARY KEY AUTOINCREMENT, tid INT
   body TEXT, mtype TEXT DEFAULT '', mid TEXT DEFAULT '', mgr TEXT DEFAULT '', created INTEGER);
 CREATE INDEX IF NOT EXISTS replies_tid ON replies(tid);
 CREATE INDEX IF NOT EXISTS replies_uid ON replies(uid);
+CREATE TABLE IF NOT EXISTS book(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER,
+  afrom TEXT, ato TEXT, lat1 REAL, lon1 REAL, lat2 REAL, lon2 REAL,
+  km REAL, hours REAL, cls TEXT, eur INTEGER, uah INTEGER,
+  status TEXT DEFAULT 'new', created INTEGER);
+CREATE INDEX IF NOT EXISTS book_uid ON book(uid);
+CREATE INDEX IF NOT EXISTS book_status ON book(status);
+CREATE TABLE IF NOT EXISTS tariff(cls TEXT, lo REAL, hi REAL, eur INTEGER, uah INTEGER,
+  PRIMARY KEY(cls,lo));
+CREATE TABLE IF NOT EXISTS routecache(k TEXT PRIMARY KEY, km REAL, hours REAL, ts INTEGER);
+CREATE TABLE IF NOT EXISTS geocache(q TEXT PRIMARY KEY, data TEXT, ts INTEGER);
 CREATE TABLE IF NOT EXISTS clicks(uid INTEGER, node INTEGER, cnt INTEGER DEFAULT 0,
   first INTEGER, last INTEGER, PRIMARY KEY(uid,node));
 CREATE INDEX IF NOT EXISTS clicks_node ON clicks(node);
@@ -250,7 +261,70 @@ CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY, role TEXT DEFAULT 'ful
 CREATE TABLE IF NOT EXISTS states(uid INTEGER PRIMARY KEY, data TEXT, elang TEXT DEFAULT '', ts INTEGER);
 """
 
+# ═══════════════ ТАРИФИ ═══════════════
+# (від, до, євро, гривні) — межі: «від» включно, «до» виключно.
+# Ціни рівно такі, як надав власник: гривня НЕ перераховується з євро,
+# бо в його таблиці курс плаває 51.82–51.90.
+TARIFF_C = [(6, 8, 60, 3110), (8, 10, 70, 3630), (10, 12, 100, 5190), (12, 14, 110, 5700),
+            (14, 16, 120, 6220), (16, 18, 130, 6740), (18, 20, 130, 6740), (20, 22, 140, 7260),
+            (22, 24, 150, 7780), (24, 27, 160, 8300), (27, 30, 170, 8820), (30, 33, 180, 9330),
+            (33, 36, 180, 9330), (36, 39, 190, 9850), (39, 42, 200, 10370), (42, 45, 210, 10890),
+            (45, 999, 220, 11410)]
+TARIFF_L = [(6, 8, 90, 4670), (8, 10, 100, 5190), (10, 12, 130, 6740), (12, 14, 150, 7780),
+            (14, 16, 150, 7780), (16, 18, 160, 8300), (18, 20, 160, 8300), (20, 22, 170, 8820),
+            (22, 24, 170, 8820), (24, 27, 180, 9330), (27, 30, 190, 9850), (30, 33, 200, 10370),
+            (33, 36, 210, 10890), (36, 39, 210, 10890), (39, 42, 230, 11930), (42, 45, 250, 12960),
+            (45, 999, 270, 14000)]
+
 SYS_DEF = {
+    "bk": {"uk": "🟢 Забронювати поїздку", "ru": "🟢 Забронировать поездку",
+           "pl": "🟢 Zarezerwuj przejazd", "en": "🟢 Book a trip"},
+    "bk_from": {"uk": "📍 <b>Звідки вас забрати?</b>\n\nНапишіть адресу: місто, вулиця, будинок.\nНаприклад: <i>Дніпро, вул. Робоча, 166а</i>\n\nМожна також надіслати 📎 геолокацію.",
+                "ru": "📍 <b>Откуда вас забрать?</b>\n\nНапишите адрес: город, улица, дом.\nНапример: <i>Днепр, ул. Рабочая, 166а</i>\n\nМожно также отправить 📎 геолокацию.",
+                "pl": "📍 <b>Skąd Cię odebrać?</b>\n\nPodaj adres: miasto, ulica, numer.\nNa przykład: <i>Warszawa, ul. Marszałkowska 1</i>\n\nMożesz też wysłać 📎 lokalizację.",
+                "en": "📍 <b>Where should we pick you up?</b>\n\nType the address: city, street, number.\nFor example: <i>Vienna, Hauslabgasse 25</i>\n\nYou can also send 📎 your location."},
+    "bk_to": {"uk": "🏁 <b>Куди їдемо?</b>\n\nНапишіть адресу призначення.\nНаприклад: <i>Wien, Hauslabgasse 25</i>",
+              "ru": "🏁 <b>Куда едем?</b>\n\nНапишите адрес назначения.\nНапример: <i>Wien, Hauslabgasse 25</i>",
+              "pl": "🏁 <b>Dokąd jedziemy?</b>\n\nPodaj adres docelowy.\nNa przykład: <i>Wien, Hauslabgasse 25</i>",
+              "en": "🏁 <b>Where are we going?</b>\n\nType the destination address.\nFor example: <i>Wien, Hauslabgasse 25</i>"},
+    "bk_pick": {"uk": "🔎 Знайшов такі адреси. Оберіть потрібну:",
+                "ru": "🔎 Нашёл такие адреса. Выберите нужный:",
+                "pl": "🔎 Znalazłem takie adresy. Wybierz właściwy:",
+                "en": "🔎 Found these addresses. Choose the right one:"},
+    "bk_none": {"uk": "😕 Не вдалося знайти таку адресу.\n\nСпробуйте написати інакше — <i>місто, вулиця, будинок</i>.\nАбо просто напишіть нам — менеджер допоможе.",
+                "ru": "😕 Не удалось найти такой адрес.\n\nПопробуйте написать иначе — <i>город, улица, дом</i>.\nИли просто напишите нам — менеджер поможет.",
+                "pl": "😕 Nie znalazłem takiego adresu.\n\nSpróbuj inaczej — <i>miasto, ulica, numer</i>.\nAlbo napisz do nas — menedżer pomoże.",
+                "en": "😕 Could not find that address.\n\nTry a different wording — <i>city, street, number</i>.\nOr just message us — our manager will help."},
+    "bk_wait": {"uk": "⏳ Розраховую маршрут…", "ru": "⏳ Рассчитываю маршрут…",
+                "pl": "⏳ Obliczam trasę…", "en": "⏳ Calculating the route…"},
+    "bk_cls": {"uk": "Оберіть клас поїздки:", "ru": "Выберите класс поездки:",
+               "pl": "Wybierz klasę przejazdu:", "en": "Choose your travel class:"},
+    "bk_err": {"uk": "😕 Не вдалося прокласти маршрут між цими адресами.\n\nНапишіть нам — менеджер розрахує вартість особисто.",
+               "ru": "😕 Не удалось проложить маршрут между этими адресами.\n\nНапишите нам — менеджер рассчитает стоимость лично.",
+               "pl": "😕 Nie udało się wyznaczyć trasy.\n\nNapisz do nas — menedżer wyceni przejazd osobiście.",
+               "en": "😕 Could not build a route between these addresses.\n\nMessage us — our manager will quote it personally."},
+    "bk_short": {"uk": "🚐 Для такої поїздки вартість розраховує менеджер особисто.\n\nНапишіть нам — відповімо швидко.",
+                 "ru": "🚐 Для такой поездки стоимость рассчитывает менеджер лично.\n\nНапишите нам — ответим быстро.",
+                 "pl": "🚐 Przy takiej trasie cenę ustala menedżer indywidualnie.\n\nNapisz do nas — odpowiemy szybko.",
+                 "en": "🚐 For this trip the price is quoted by our manager.\n\nMessage us — we reply fast."},
+    "bk_c": {"uk": "💺 COMFORT", "ru": "💺 COMFORT", "pl": "💺 COMFORT", "en": "💺 COMFORT"},
+    "bk_l": {"uk": "✨ LUX", "ru": "✨ LUX", "pl": "✨ LUX", "en": "✨ LUX"},
+    "bk_road": {"uk": "Час у дорозі", "ru": "Время в пути", "pl": "Czas podróży", "en": "Travel time"},
+    "bk_dist": {"uk": "Відстань", "ru": "Расстояние", "pl": "Odległość", "en": "Distance"},
+    "bk_cost": {"uk": "Вартість", "ru": "Стоимость", "pl": "Cena", "en": "Price"},
+    "bk_note": {"uk": "<i>Час орієнтовний — залежить від черги на кордоні та зупинок у дорозі.</i>",
+                "ru": "<i>Время ориентировочное — зависит от очереди на границе и остановок в пути.</i>",
+                "pl": "<i>Czas orientacyjny — zależy od kolejki na granicy i postojów.</i>",
+                "en": "<i>Time is approximate — depends on border queues and stops on the way.</i>"},
+    "bk_cta": {"uk": "✅ <b>Готові вирушати?</b>\nЗв'яжіться з нами — забронюємо місце для вас.",
+               "ru": "✅ <b>Готовы отправиться?</b>\nСвяжитесь с нами — забронируем место для вас.",
+               "pl": "✅ <b>Gotowi do drogi?</b>\nSkontaktuj się z nami — zarezerwujemy miejsce.",
+               "en": "✅ <b>Ready to go?</b>\nContact us — we will reserve your seat."},
+    "bk_other": {"uk": "🔄 Інший маршрут", "ru": "🔄 Другой маршрут",
+                 "pl": "🔄 Inna trasa", "en": "🔄 Another route"},
+    "bk_cmp": {"uk": "Порівняти з", "ru": "Сравнить с", "pl": "Porównaj z", "en": "Compare with"},
+    "bk_again": {"uk": "✏️ Ввести заново", "ru": "✏️ Ввести заново",
+                 "pl": "✏️ Wpisz ponownie", "en": "✏️ Type again"},
     "langsel": {"uk": "🇺🇦 <b>EUROTOUR</b>\n\nОберіть мову / Выберите язык\nChoose language / Wybierz język",
                 "ru": "🇺🇦 <b>EUROTOUR</b>\n\nОберіть мову / Выберите язык\nChoose language / Wybierz język",
                 "pl": "🇺🇦 <b>EUROTOUR</b>\n\nОберіть мову / Выберите язык\nChoose language / Wybierz język",
@@ -301,7 +375,10 @@ CFG_DEF = {"chat_id": "", "notify": "1", "confirm": "1", "files": "1", "spam": "
            "maint": "0", "backbtn": "1", "deflang": "uk", "langs": "uk,ru,pl,en",
            "autotr": "1",          # автопереклад правок на інші мови
            "tochat": "1",          # надсилати звернення у груповий чат
-           "toadmins": "0"}        # дублювати звернення особисто адмінам/менеджерам
+           "toadmins": "0",        # дублювати звернення особисто адмінам/менеджерам
+           "bkon": "1",            # кнопка «Забронювати» увімкнена
+           "bkadd": "3",           # +N год до часу з карт (кордон, зупинки, збір пасажирів)
+           "bkchat": ""}           # окремий чат для заявок; порожньо = туди ж, куди звернення
 
 GREET = {"uk": "👋 <b>Вітаємо!</b>\n\nEUROTOUR — пасажирські перевезення Україна ⇄ Європа.\nКомфорт, пунктуальність, безпека.\n\nОберіть розділ 👇",
          "ru": "👋 <b>Добро пожаловать!</b>\n\nEUROTOUR — пассажирские перевозки Украина ⇄ Европа.\nКомфорт, пунктуальность, безопасность.\n\nВыберите раздел 👇",
@@ -493,6 +570,16 @@ async def init_db() -> None:
             log.info("Кеш перекладів очищено")
     # Кнопка «Мої звернення» поряд із «Написати зараз» — щоб клієнт бачив
     # свої листи й відповіді. Додаємо один раз у той самий розділ, де форма.
+    # ── тарифна сітка: заливаємо один раз, далі власник править у панелі ──
+    cur = await db.execute("SELECT COUNT(*) FROM tariff")
+    if not (await cur.fetchone())[0]:
+        for cls, tab in (("c", TARIFF_C), ("l", TARIFF_L)):
+            for lo, hi, e, g in tab:
+                await db.execute("INSERT OR REPLACE INTO tariff(cls,lo,hi,eur,uah) "
+                                 "VALUES(?,?,?,?,?)", (cls, lo, hi, e, g))
+        await db.commit()
+        log.info("Тарифи залито: %d рядків", len(TARIFF_C) + len(TARIFF_L))
+
     cur = await db.execute("SELECT v FROM cfg WHERE k='mymsgbtn'")
     if not await cur.fetchone():
         with suppress(Exception):
@@ -564,6 +651,25 @@ async def init_db() -> None:
                 for l, lab in SYS_DEF["mymsg"].items():
                     await db.execute("INSERT OR IGNORE INTO tr(node,lang,label) VALUES(?,?,?)", (mid_, l, lab))
                 await db.commit()
+
+    # ── 🟢 кнопка «Забронювати поїздку» у головному меню ──
+    cur = await db.execute("SELECT v FROM cfg WHERE k='bkbtn'")
+    if not await cur.fetchone():
+        with suppress(Exception):
+            cur = await db.execute("SELECT id FROM nodes WHERE typ='book' LIMIT 1")
+            if not await cur.fetchone():
+                cur = await db.execute("SELECT COALESCE(MAX(pos),-1)+1 FROM nodes WHERE parent=1")
+                pos = (await cur.fetchone())[0]
+                cur = await db.execute(
+                    "INSERT INTO nodes(parent,typ,pos,roww,sys) VALUES(1,'book',?,1,'book')", (pos,))
+                bid = cur.lastrowid
+                for l in LANGS:
+                    await db.execute("INSERT OR IGNORE INTO tr(node,lang,label) VALUES(?,?,?)",
+                                     (bid, l, SYS_DEF["bk"][l]))
+                log.info("Кнопку «Забронювати» створено (node %s)", bid)
+            await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('bkbtn','1')")
+    await db.commit()
+
 
 
 # ═══════════════════ АВТОПЕРЕКЛАД ═══════════════════
@@ -902,6 +1008,136 @@ def esc(s: Any) -> str:
     return html.escape(str(s or ""), quote=False)
 
 
+# ═══════════════ КАРТИ: АДРЕСИ, МАРШРУТИ, ТАРИФИ ═══════════════
+# Працює без ключа й без картки: OpenStreetMap (пошук адрес) + OSRM (маршрут).
+# Якщо власник додасть ключ Google (env GMAPS_KEY) — використовуємо його,
+# бо він точніший. Результати кешуються в базі, тому повторні запити
+# по тих самих адресах не смикають мережу взагалі.
+GMAPS_KEY = os.getenv("GMAPS_KEY", "").strip()
+HTTP_UA = "EurotourBot/1.0 (+t.me/eurotour_information_bot)"
+GEO_TTL = 90 * 86400          # адреси майже не змінюються
+ROUTE_TTL = 30 * 86400        # дороги теж
+
+
+async def _fetch(url: str, headers: dict | None = None, timeout: int = 20) -> dict | None:
+    """GET + JSON у окремому потоці, щоб не блокувати бота."""
+    def _go():
+        import urllib.request
+        rq = urllib.request.Request(url, headers=headers or {"User-Agent": HTTP_UA})
+        with urllib.request.urlopen(rq, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8", "replace"))
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_go), timeout + 6)
+    except Exception as e:
+        log.warning("maps fetch: %s", str(e)[:120])
+        return None
+
+
+def _short_addr(full: str) -> str:
+    """Скорочує довгий рядок адреси до читабельного: вулиця, будинок, місто, країна."""
+    parts = [p.strip() for p in (full or "").split(",") if p.strip()]
+    if len(parts) <= 4:
+        return ", ".join(parts)
+    return ", ".join(parts[:3] + [parts[-1]])
+
+
+async def geocode(query: str, lang: str = "uk") -> list[dict]:
+    """Шукає адресу. Повертає до 5 варіантів: {name, lat, lon}."""
+    q = " ".join((query or "").split())[:180]
+    if len(q) < 3:
+        return []
+    ck = hashlib.md5(f"{lang}|{q.lower()}".encode()).hexdigest()
+    row = await q1("SELECT data,ts FROM geocache WHERE q=?", ck)
+    if row and now() - (row["ts"] or 0) < GEO_TTL:
+        with suppress(Exception):
+            return json.loads(row["data"])
+    out: list[dict] = []
+    if GMAPS_KEY:
+        u = ("https://maps.googleapis.com/maps/api/geocode/json?"
+             + urllib.parse.urlencode({"address": q, "language": lang, "key": GMAPS_KEY}))
+        d = await _fetch(u)
+        for r in (d or {}).get("results", [])[:5]:
+            loc = r.get("geometry", {}).get("location", {})
+            if loc:
+                out.append({"name": r.get("formatted_address", q),
+                            "lat": loc["lat"], "lon": loc["lng"]})
+    if not out:
+        u = ("https://nominatim.openstreetmap.org/search?"
+             + urllib.parse.urlencode({"q": q, "format": "json", "limit": 5,
+                                       "accept-language": lang}))
+        d = await _fetch(u, {"User-Agent": HTTP_UA})
+        for r in (d or [])[:5]:
+            with suppress(Exception):
+                out.append({"name": _short_addr(r["display_name"]),
+                            "lat": float(r["lat"]), "lon": float(r["lon"])})
+    if not out:      # запасний геокодер
+        u = "https://photon.komoot.io/api/?" + urllib.parse.urlencode(
+            {"q": q, "limit": 5, "lang": "en" if lang not in ("uk", "ru", "de", "fr") else lang})
+        d = await _fetch(u)
+        for f in (d or {}).get("features", [])[:5]:
+            p, g = f.get("properties", {}), f.get("geometry", {}).get("coordinates")
+            if not g:
+                continue
+            nm = ", ".join(x for x in [
+                " ".join(y for y in [p.get("street") or p.get("name"), p.get("housenumber")] if y),
+                p.get("city") or p.get("county"), p.get("country")] if x)
+            out.append({"name": nm or q, "lat": g[1], "lon": g[0]})
+    if out:
+        await ex("INSERT OR REPLACE INTO geocache(q,data,ts) VALUES(?,?,?)",
+                 ck, json.dumps(out, ensure_ascii=False), now())
+    return out
+
+
+async def route_calc(lat1: float, lon1: float, lat2: float, lon2: float) -> tuple[float, float] | None:
+    """Маршрут між точками. Повертає (км, чистих годин) або None."""
+    ck = f"{lat1:.4f},{lon1:.4f}>{lat2:.4f},{lon2:.4f}"
+    row = await q1("SELECT km,hours,ts FROM routecache WHERE k=?", ck)
+    if row and now() - (row["ts"] or 0) < ROUTE_TTL:
+        return row["km"], row["hours"]
+    km = hrs = None
+    if GMAPS_KEY:
+        u = ("https://maps.googleapis.com/maps/api/directions/json?"
+             + urllib.parse.urlencode({"origin": f"{lat1},{lon1}",
+                                       "destination": f"{lat2},{lon2}",
+                                       "mode": "driving", "key": GMAPS_KEY}))
+        d = await _fetch(u)
+        for rt in (d or {}).get("routes", [])[:1]:
+            leg = (rt.get("legs") or [{}])[0]
+            if leg.get("duration") and leg.get("distance"):
+                km = leg["distance"]["value"] / 1000
+                hrs = leg["duration"]["value"] / 3600
+    if km is None:
+        u = (f"https://router.project-osrm.org/route/v1/driving/"
+             f"{lon1},{lat1};{lon2},{lat2}?overview=false")
+        d = await _fetch(u)
+        for rt in (d or {}).get("routes", [])[:1]:
+            km = rt["distance"] / 1000
+            hrs = rt["duration"] / 3600
+    if km is None:
+        return None
+    await ex("INSERT OR REPLACE INTO routecache(k,km,hours,ts) VALUES(?,?,?,?)",
+             ck, km, hrs, now())
+    return km, hrs
+
+
+async def tariff_for(hours: float, cls: str) -> tuple[int, int] | None:
+    """Ціна за годинами в дорозі. Повертає (євро, гривні) або None, якщо поза сіткою."""
+    r = await q1("SELECT eur,uah FROM tariff WHERE cls=? AND lo<=? AND hi>? LIMIT 1",
+                 cls, hours, hours)
+    if r:
+        return r["eur"], r["uah"]
+    return None
+
+
+def fmt_hours(h: float, lang: str = "uk") -> str:
+    """18.4 → «18 год 25 хв» мовою клієнта."""
+    total = int(round(h * 60))
+    hh, mm = divmod(total, 60)
+    w = {"uk": ("год", "хв"), "ru": ("ч", "мин"), "pl": ("godz", "min"), "en": ("h", "min")}
+    a, b = w.get(lang, w["uk"])
+    return f"{hh} {a}" + (f" {mm} {b}" if mm else "")
+
+
 def uname(u: aiosqlite.Row | dict) -> str:
     un = (u["uname"] if isinstance(u, aiosqlite.Row) else u.get("uname")) or ""
     return f"@{un}" if un else "@ немає"
@@ -1238,6 +1474,206 @@ async def my_tickets(ev, uid: int, page: int = 0) -> None:
     await render(ev, "\n".join(parts).strip(), kb(rows))
 
 
+async def contact_block(lang: str) -> tuple[str, list]:
+    """Контакти з розділу «Зв'язок» + кнопка форми. Один текст — одне джерело правди:
+    коли власник змінить контакти в панелі, тут вони оновляться самі."""
+    node = await q1("SELECT id FROM nodes WHERE sys='contact' LIMIT 1")
+    body, rows = "", []
+    if node:
+        t = await node_tr(node["id"], lang)
+        body = (t["body"] or "").strip()
+    form = await q1("SELECT id FROM nodes WHERE typ='form' AND hidden=0 AND draft=0 ORDER BY id LIMIT 1")
+    if form:
+        ft = await node_tr(form["id"], lang)
+        rows.append([B(ft["label"] or "✍️", f"n:{form['id']}")])
+    return body, rows
+
+
+async def bk_start(ev, uid: int) -> None:
+    """Крок 1 — питаємо адресу посадки."""
+    lang = await ulang(uid)
+    ST[uid] = {"k": "bk_from"}
+    await render(ev, await T("bk_from", lang),
+                 kb([[B(await T("cancel", lang), "home")]]))
+
+
+async def bk_ask_to(ev, uid: int) -> None:
+    lang = await ulang(uid)
+    st = ST.get(uid) or {}
+    st["k"] = "bk_to"
+    ST[uid] = st
+    await render(ev, f"📍 {esc(st.get('fname',''))}\n\n" + await T("bk_to", lang),
+                 kb([[B(await T("cancel", lang), "home")]]))
+
+
+async def bk_show_pick(ev, uid: int, found: list[dict], which: str) -> None:
+    """Показує знайдені адреси кнопками — клієнт підтверджує потрібну."""
+    lang = await ulang(uid)
+    st = ST.get(uid) or {}
+    st["pick"] = found
+    st["k"] = f"bk_pick_{which}"
+    ST[uid] = st
+    rows = [[B(f"📍 {f['name'][:56]}", f"bk:p:{i}")] for i, f in enumerate(found)]
+    rows.append([B(await T("bk_again", lang), f"bk:again:{which}")])
+    rows.append([B(await T("cancel", lang), "home")])
+    await render(ev, await T("bk_pick", lang), kb(rows))
+
+
+async def bk_classes(ev, uid: int) -> None:
+    """Маршрут порахований — показуємо час і просимо обрати клас."""
+    lang = await ulang(uid)
+    st = ST.get(uid) or {}
+    hrs = st.get("hours", 0)
+    km = st.get("km", 0)
+    txt = (f"🗺 <b>{esc(st.get('fname',''))}</b>\n"
+           f"      ↓\n"
+           f"<b>{esc(st.get('tname',''))}</b>\n\n"
+           f"📏 {await T('bk_dist', lang)}: <b>{km:,.0f} км</b>\n".replace(",", " ") +
+           f"🕐 {await T('bk_road', lang)}: <b>~{fmt_hours(hrs, lang)}</b>\n"
+           f"{await T('bk_note', lang)}\n\n"
+           f"{await T('bk_cls', lang)}")
+    rows = [[B(await T("bk_c", lang), "bk:c:c"), B(await T("bk_l", lang), "bk:c:l")],
+            [B(await T("bk_other", lang), "bk:new")],
+            [B(await T("back", lang), "home")]]
+    st["k"] = "bk_cls"
+    ST[uid] = st
+    await render(ev, txt, kb(rows))
+
+
+async def bk_price(ev, uid: int, cls: str) -> None:
+    """Фінальний екран: ціна клієнта + заклик зв'язатися з нами."""
+    lang = await ulang(uid)
+    st = ST.get(uid) or {}
+    hrs = st.get("hours", 0)
+    pr = await tariff_for(hrs, cls)
+    if not pr:
+        body, rows = await contact_block(lang)
+        rows.append([B(await T("back", lang), "home")])
+        await render(ev, await T("bk_short", lang) + ("\n\n" + body if body else ""), kb(rows))
+        return
+    eur, uah = pr
+    nm = await T("bk_l" if cls == "l" else "bk_c", lang)
+    # зберігаємо заявку — власник побачить її в панелі
+    bid = await ex("INSERT INTO book(uid,afrom,ato,lat1,lon1,lat2,lon2,km,hours,cls,eur,uah,"
+                   "status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'new',?)",
+                   uid, st.get("fname", ""), st.get("tname", ""), st.get("flat"), st.get("flon"),
+                   st.get("tlat"), st.get("tlon"), st.get("km", 0), hrs, cls, eur, uah, now())
+    body, crows = await contact_block(lang)
+    txt = (f"{nm}\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
+           f"📍 {esc(st.get('fname', ''))}\n"
+           f"🏁 {esc(st.get('tname', ''))}\n\n"
+           f"🕐 {await T('bk_road', lang)}: ~{fmt_hours(hrs, lang)}\n"
+           f"💰 {await T('bk_cost', lang)}: <b>{eur} €</b>\n"
+           f"🇺🇦 {uah:,} грн".replace(",", " ") + "\n"
+           f"━━━━━━━━━━━━━━━━━━\n\n"
+           f"{await T('bk_cta', lang)}\n\n"
+           f"{body}")
+    other = "l" if cls == "c" else "c"
+    rows = list(crows)
+    rows.append([B(f"{await T('bk_cmp', lang)} "
+                   f"{await T('bk_l' if other == 'l' else 'bk_c', lang)}", f"bk:c:{other}")])
+    rows.append([B(await T("bk_other", lang), "bk:new")])
+    rows.append([B(await T("back", lang), "home")])
+    await render(ev, txt, kb(rows))
+    with suppress(Exception):
+        await bk_notify(ev.bot, uid, bid)
+
+
+async def bk_notify(bot: Bot, uid: int, bid: int) -> None:
+    """Заявка менеджеру — щоб він побачив розрахунок і міг першим написати."""
+    b = await q1("SELECT * FROM book WHERE id=?", bid)
+    if not b:
+        return
+    u = await q1("SELECT * FROM users WHERE id=?", uid)
+    un = f"@{u['uname']}" if u and u["uname"] else "@ немає"
+    cls = "✨ LUX" if b["cls"] == "l" else "💺 COMFORT"
+    txt = (f"🟢 <b>РОЗРАХУНОК ПОЇЗДКИ #{bid}</b>\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
+           f"👤 {esc((u['name'] if u else '') or uid)}\n"
+           f"🔗 {esc(un)}\n"
+           f"🆔 <code>{uid}</code>\n\n"
+           f"📍 {esc(b['afrom'])}\n"
+           f"🏁 {esc(b['ato'])}\n"
+           f"📏 {b['km']:.0f} км · 🕐 {b['hours']:.1f} год\n\n"
+           f"{cls}\n"
+           f"💰 <b>{b['eur']} €</b> / {b['uah']:,} грн".replace(",", " ") + "\n"
+           f"🕐 {ts(b['created'])}")
+    rows = kb([[B("✍️ Написати клієнту", f"p:bo:w:{bid}")],
+               [B("✅ Опрацьовано", f"p:bo:done:{bid}")]])
+    tg: list[int] = []
+    if CFG.get("bkchat"):
+        with suppress(ValueError):
+            tg.append(int(CFG["bkchat"]))
+    if not tg and CFG.get("tochat", "1") == "1" and CFG.get("chat_id"):
+        with suppress(ValueError):
+            tg.append(int(CFG["chat_id"]))
+    if OWNER_ID and OWNER_ID not in tg:
+        tg.append(OWNER_ID)
+    for t in tg:
+        with suppress(TelegramBadRequest, TelegramForbiddenError, Exception):
+            await bot.send_message(t, txt, reply_markup=rows)
+
+
+async def bk_input(m: Message, uid: int, st: dict) -> None:
+    """Клієнт написав адресу (або надіслав геолокацію)."""
+    lang = await ulang(uid)
+    which = "from" if st["k"] == "bk_from" else "to"
+    loc = getattr(m, "location", None)
+    if loc:                                    # геолокація — координати вже є
+        found = [{"name": {"uk": "Моє місцезнаходження", "ru": "Моё местоположение",
+                           "pl": "Moja lokalizacja", "en": "My location"}[lang],
+                  "lat": loc.latitude, "lon": loc.longitude}]
+    else:
+        q = (m.text or m.caption or "").strip()
+        if len(q) < 3:
+            await m.answer(await T("bk_none", lang)); return
+        wait = await m.answer(await T("bk_wait", lang))
+        found = await geocode(q, lang)
+        with suppress(Exception):
+            await wait.delete()
+    if not found:
+        body, rows = await contact_block(lang)
+        rows.append([B(await T("back", lang), "home")])
+        await m.answer(await T("bk_none", lang) + ("\n\n" + body if body else ""),
+                       reply_markup=kb(rows))
+        return
+    if len(found) == 1:
+        await bk_take(m, uid, found[0], which); return
+    await bk_show_pick(m, uid, found, which)
+
+
+async def bk_take(ev, uid: int, place: dict, which: str) -> None:
+    """Адресу підтверджено — рухаємось далі."""
+    st = ST.get(uid) or {}
+    if which == "from":
+        st.update(fname=place["name"], flat=place["lat"], flon=place["lon"])
+        ST[uid] = st
+        await bk_ask_to(ev, uid)
+        return
+    st.update(tname=place["name"], tlat=place["lat"], tlon=place["lon"])
+    ST[uid] = st
+    lang = await ulang(uid)
+    wait = None
+    with suppress(Exception):
+        wait = await (ev if isinstance(ev, Message) else ev.message).answer(await T("bk_wait", lang))
+    r = await route_calc(st["flat"], st["flon"], st["tlat"], st["tlon"])
+    with suppress(Exception):
+        if wait:
+            await wait.delete()
+    if not r:
+        body, rows = await contact_block(lang)
+        rows.append([B(await T("back", lang), "home")])
+        ST.pop(uid, None)
+        await render(ev, await T("bk_err", lang) + ("\n\n" + body if body else ""), kb(rows))
+        return
+    km, raw = r
+    add = I(CFG.get("bkadd", "3"))            # +3 год: кордон, зупинки, збір пасажирів
+    st.update(km=km, hours=raw + add, raw=raw)
+    ST[uid] = st
+    await bk_classes(ev, uid)
+
+
 async def lang_menu(lang: str) -> InlineKeyboardMarkup:
     rows = grid([B(LANGS[l], f"l:{l}") for l in langs_on()], 2)
     rows.append([B(await T("back", lang), "home")])
@@ -1277,6 +1713,38 @@ async def cb_lang(c: CallbackQuery) -> None:
         await ex("UPDATE users SET lang=?,lset=1 WHERE id=?", lang, c.from_user.id)
     await c.answer("✅")
     await show_node(c, 1, c.from_user.id)
+
+
+@user_r.callback_query(F.data.startswith("bk:"), F.message.chat.type == "private")
+async def cb_book(c: CallbackQuery) -> None:
+    uid = c.from_user.id
+    await c.answer()
+    p = c.data.split(":")
+    act = p[1] if len(p) > 1 else ""
+    arg = p[2] if len(p) > 2 else ""
+    st = ST.get(uid) or {}
+    if act == "new":                       # почати спочатку
+        ST.pop(uid, None)
+        await bk_start(c, uid); return
+    if act == "again":                     # ввести адресу заново
+        st["k"] = "bk_from" if arg == "from" else "bk_to"
+        st.pop("pick", None)
+        ST[uid] = st
+        lang = await ulang(uid)
+        await render(c, await T("bk_from" if arg == "from" else "bk_to", lang),
+                     kb([[B(await T("cancel", lang), "home")]]))
+        return
+    if act == "p":                         # обрано варіант адреси
+        picks = st.get("pick") or []
+        i = I(arg)
+        if not (0 <= i < len(picks)):
+            await bk_start(c, uid); return
+        which = "from" if st.get("k") == "bk_pick_from" else "to"
+        await bk_take(c, uid, picks[i], which); return
+    if act == "c":                         # обрано клас
+        if not st.get("hours"):
+            await bk_start(c, uid); return
+        await bk_price(c, uid, "l" if arg == "l" else "c"); return
 
 
 @user_r.callback_query(F.data == "home", F.message.chat.type == "private")
@@ -1334,6 +1802,10 @@ async def cb_node(c: CallbackQuery) -> None:
         ST.pop(uid, None)
         await c.answer()
         await my_tickets(c, uid, 0); return
+    if typ == "book":                        # 🟢 «Забронювати поїздку»
+        ST.pop(uid, None)
+        await c.answer()
+        await bk_start(c, uid); return
     if typ == "goto":
         try:
             await c.answer(); await show_node(c, int(node["target"] or 1), uid); return
@@ -1420,6 +1892,8 @@ async def any_private(m: Message) -> None:
         ST.pop(uid, None)
         await m.answer(await T("maint", await ulang(uid))); return
     st = ST.get(uid)
+    if st and st.get("k") in ("bk_from", "bk_to"):
+        await bk_input(m, uid, st); return
     if st and st.get("k") == "form":
         gap = int(CFG.get("spam", "20") or 0)
         if gap and now() - LASTMSG.get(uid, 0) < gap and not await is_admin(uid):
@@ -1456,6 +1930,7 @@ async def crumb(nid: int, lang: str) -> str:
 async def panel_home(ev, uid: int) -> None:
     role = await is_admin(uid) or ""
     new = await scalar("SELECT COUNT(*) FROM tickets WHERE status='new'")
+    nbk = await scalar("SELECT COUNT(*) FROM book WHERE status='new'") or 0
     users = await scalar("SELECT COUNT(*) FROM users")
     today = await scalar("SELECT COUNT(*) FROM users WHERE created>?", now() - 86400)
     txt = (f"⚙️ <b>Панель управління EUROTOUR</b>\n\n"
@@ -1469,6 +1944,7 @@ async def panel_home(ev, uid: int) -> None:
     else:
         rows = [[B("📄 Розділи бота", "p:sec"), B("👁 Живе редагування", "p:live")],
                 [B("📨 Звернення" + (f" 🔴{new}" if new else ""), "p:t:list:new:0"), B("👥 Користувачі", "p:u:0")],
+                [B("🟢 Бронювання" + (f" 🔴{nbk}" if nbk else ""), "p:bo:l:0")],
                 [B("📢 Розсилка", "p:b:menu"), B("📊 Статистика", "p:stat")],
                 [B("🌍 Мови", "p:langs"), B("🖼 Медіа", "p:medial")],
                 [B("⚙️ Налаштування", "p:s:menu"), B("👮 Адміни", "p:a:list")],
@@ -1991,6 +2467,84 @@ async def clicks_person(ev, uid: int, who: int, page: int = 0) -> None:
                      f"━━━━━━━━━━━━━━━━━━\n" + ("\n".join(lines) or "Поки порожньо."), kb(rows))
 
 
+async def bk_list(ev, uid: int, page: int = 0) -> None:
+    """Заявки на розрахунок поїздки."""
+    per = 6
+    total = await scalar("SELECT COUNT(*) FROM book") or 0
+    new = await scalar("SELECT COUNT(*) FROM book WHERE status='new'") or 0
+    if not total:
+        await render(ev, "⚙️ Панель › 🟢 <b>Бронювання</b>\n\n"
+                         "Заявок ще немає. Вони з'являться тут, щойно клієнт\n"
+                         "розрахує поїздку через кнопку «Забронювати».",
+                     kb([[B("💶 Тарифи", "p:bo:tar:c:0")], BOTTOM("p:home")]))
+        return
+    pages = max(1, (total + per - 1) // per)
+    page = max(0, min(page, pages - 1))
+    rs = await qa("SELECT b.*,u.uname,u.name FROM book b LEFT JOIN users u ON u.id=b.uid "
+                  "ORDER BY b.id DESC LIMIT ? OFFSET ?", per, page * per)
+    lines = []
+    for b in rs:
+        mark = "🔴" if b["status"] == "new" else "✅"
+        who = (b["name"] or b["uid"])
+        un = f" @{b['uname']}" if b["uname"] else ""
+        cls = "✨" if b["cls"] == "l" else "💺"
+        lines.append(f"{mark} <b>#{b['id']}</b> {esc(str(who))}{esc(un)}\n"
+                     f"    📍 {esc(b['afrom'][:34])}\n"
+                     f"    🏁 {esc(b['ato'][:34])}\n"
+                     f"    {cls} {b['hours']:.0f} год · <b>{b['eur']} €</b> / {b['uah']} грн"
+                     f" · {ts(b['created'])}")
+    rows = []
+    nav = []
+    if page > 0:
+        nav.append(B("◀️", f"p:bo:l:{page-1}"))
+    if pages > 1:
+        nav.append(B(f"{page+1}/{pages}", "p:noop"))
+    if page + 1 < pages:
+        nav.append(B("▶️", f"p:bo:l:{page+1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([B("💶 Тарифи", "p:bo:tar:c:0"), B("📥 CSV", "p:bo:exp")])
+    rows.append(BOTTOM("p:home"))
+    await render(ev, f"⚙️ Панель › 🟢 <b>Бронювання</b>\n\n"
+                     f"Усього заявок: <b>{total}</b> · 🔴 нових: <b>{new}</b>\n"
+                     f"━━━━━━━━━━━━━━━━━━\n" + "\n\n".join(lines), kb(rows))
+
+
+async def bk_tariffs(ev, uid: int, cls: str = "c", page: int = 0) -> None:
+    """Редактор тарифів — власник міняє ціни без програміста."""
+    per = 9
+    rs = await qa("SELECT * FROM tariff WHERE cls=? ORDER BY lo", cls)
+    pages = max(1, (len(rs) + per - 1) // per)
+    page = max(0, min(page, pages - 1))
+    chunk = rs[page * per:(page + 1) * per]
+    nm = "✨ LUX" if cls == "l" else "💺 COMFORT"
+    lines, rows = [], []
+    for r in chunk:
+        hi = "45+" if r["hi"] > 900 else f"{r['lo']:.0f}–{r['hi']:.0f}"
+        lines.append(f"<code>{hi:>7} год</code>  <b>{r['eur']} €</b> / {r['uah']} грн")
+        rows.append([B(f"{hi} год · {r['eur']} € / {r['uah']} грн",
+                       f"p:bo:ed:{cls}:{r['lo']:.0f}")])
+    nav = []
+    if page > 0:
+        nav.append(B("◀️", f"p:bo:tar:{cls}:{page-1}"))
+    if pages > 1:
+        nav.append(B(f"{page+1}/{pages}", "p:noop"))
+    if page + 1 < pages:
+        nav.append(B("▶️", f"p:bo:tar:{cls}:{page+1}"))
+    if nav:
+        rows.append(nav)
+    other = "l" if cls == "c" else "c"
+    rows.append([B("✨ LUX" if other == "l" else "💺 COMFORT", f"p:bo:tar:{other}:0")])
+    rows.append([B(f"➕ Надбавка: {CFG.get('bkadd','3')} год", "p:bo:add")])
+    rows.append([B("⬅️ До заявок", "p:bo:l:0")])
+    rows.append(BOTTOM("p:home"))
+    add = CFG.get("bkadd", "3")
+    await render(ev, f"⚙️ Панель › 🟢 Бронювання › 💶 <b>Тарифи · {nm}</b>\n\n"
+                     f"{chr(10).join(lines)}\n\n"
+                     f"➕ До часу з карт додається: <b>{add} год</b>\n"
+                     f"<i>Натисніть на рядок, щоб змінити ціну.</i>", kb(rows))
+
+
 async def settings_view(ev, uid: int) -> None:
     chat = CFG.get("chat_id") or "—"
     on = lambda k, d="1": "✅ увімк." if CFG.get(k, d) == "1" else "⬜ вимк."
@@ -2147,6 +2701,37 @@ async def admin_input(m: Message, st: dict) -> None:
     lang = el(uid)
     text = body_of(m)
     mtype, mid = media_of(m)
+
+    if k == "bk_edit":                    # нова ціна тарифу
+        nums = re.findall(r"\d+", text or "")
+        if len(nums) < 2:
+            await m.answer("⚠️ Надішліть два числа: <code>170 8840</code>"); return
+        e, g = int(nums[0]), int(nums[1])
+        await ex("UPDATE tariff SET eur=?,uah=? WHERE cls=? AND lo=?", e, g, st["cls"], st["lo"])
+        ST.pop(uid, None)
+        await m.answer(f"✅ Оновлено: {e} € / {g} грн")
+        await bk_tariffs(m, uid, st["cls"], 0); return
+
+    if k == "bk_add":                     # надбавка годин
+        nums = re.findall(r"\d+", text or "")
+        if not nums:
+            await m.answer("⚠️ Надішліть число, наприклад <code>3</code>"); return
+        await setcfg("bkadd", nums[0])
+        ST.pop(uid, None)
+        await m.answer(f"✅ До часу з карт додається {nums[0]} год")
+        await bk_tariffs(m, uid, "c", 0); return
+
+    if k == "bk_reply":                   # відповідь клієнту по заявці
+        if not text and not mid:
+            await m.answer("⚠️ Надішліть текст."); return
+        ST.pop(uid, None)
+        try:
+            await send_content(m.bot, st["to"], text or "", None, mtype, mid)
+            await ex("UPDATE book SET status='done' WHERE id=?", st["bid"])
+            await m.answer("✅ Надіслано клієнту.")
+        except (TelegramBadRequest, TelegramForbiddenError) as e:
+            await m.answer(f"⚠️ Не вдалося надіслати: {e}")
+        return
 
     if k == "txt":
         nid = st["node"]
@@ -2707,6 +3292,7 @@ async def panel_cb(c: CallbackQuery) -> None:
                          [B("📞 Телефон", f"p:sett:{arg}:phone"), B("📍 Гео", f"p:sett:{arg}:loc")],
                          [B("📎 Файл", f"p:sett:{arg}:file"), B("↩️ Перехід", f"p:sett:{arg}:goto")],
                          [B("📋 Мої звернення", f"p:sett:{arg}:mymsg")],
+                         [B("🟢 Забронювати поїздку", f"p:sett:{arg}:book")],
                          BOTTOM(f"p:n:{arg}")])); return
     if sec == "sett":
         nid = I(arg)
@@ -2792,6 +3378,7 @@ async def panel_cb(c: CallbackQuery) -> None:
                          [B("📞 Телефон", f"p:wt:{arg}:phone"), B("📍 Геолокація", f"p:wt:{arg}:loc")],
                          [B("📎 Файл", f"p:wt:{arg}:file"), B("↩️ Перехід у розділ", f"p:wt:{arg}:goto")],
                          [B("📋 Мої звернення", f"p:wt:{arg}:mymsg")],
+                         [B("🟢 Забронювати поїздку", f"p:wt:{arg}:book")],
                          BOTTOM(f"p:btn:{arg}")])); return
     if sec == "wt":
         ST[uid] = {"k": "wiz_label", "parent": I(arg), "typ": arg2}
@@ -2998,6 +3585,58 @@ async def panel_cb(c: CallbackQuery) -> None:
             return
 
     # ── пользователи ──
+    if sec == "bo":                       # 🟢 бронювання (p:bk зайнято бекапом)
+        if arg == "l":
+            await bk_list(c, uid, I(arg2)); return
+        if arg == "tar":
+            await bk_tariffs(c, uid, arg2 or "c", I(arg3)); return
+        if arg == "ed":                   # змінити ціну рядка
+            ST[uid] = {"k": "bk_edit", "cls": arg2, "lo": I(arg3)}
+            r = await q1("SELECT * FROM tariff WHERE cls=? AND lo=?", arg2, I(arg3))
+            hi = "45+" if r and r["hi"] > 900 else (f"{r['lo']:.0f}–{r['hi']:.0f}" if r else "?")
+            await c.message.answer(
+                f"💶 Тариф <b>{hi} год</b> ({'LUX' if arg2=='l' else 'COMFORT'})\n\n"
+                f"Зараз: {r['eur'] if r else '?'} € / {r['uah'] if r else '?'} грн\n\n"
+                f"Надішліть нову ціну у форматі:\n<code>170 8840</code>\n"
+                f"<i>(євро, потім гривні через пробіл)</i>")
+            return
+        if arg == "add":                  # змінити надбавку годин
+            ST[uid] = {"k": "bk_add"}
+            await c.message.answer(
+                f"➕ Зараз до часу з карт додається <b>{CFG.get('bkadd','3')} год</b>.\n\n"
+                f"Надішліть нове число (наприклад <code>3</code>).")
+            return
+        if arg == "w":                    # написати клієнту
+            b = await q1("SELECT * FROM book WHERE id=?", I(arg2))
+            if b:
+                ST[uid] = {"k": "bk_reply", "to": b["uid"], "bid": b["id"]}
+                await c.message.answer(f"✍️ Напишіть повідомлення для клієнта "
+                                       f"(заявка #{b['id']}). Воно піде йому в бот.")
+            return
+        if arg == "done":
+            await ex("UPDATE book SET status='done' WHERE id=?", I(arg2))
+            await c.answer("✅")
+            with suppress(Exception):
+                await c.message.edit_reply_markup(reply_markup=None)
+            return
+        if arg == "exp":
+            rs = await qa("SELECT b.*,u.uname,u.name FROM book b LEFT JOIN users u ON u.id=b.uid "
+                          "ORDER BY b.id")
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(["id", "user_id", "username", "name", "from", "to", "km", "hours",
+                        "class", "eur", "uah", "status", "created"])
+            for r in rs:
+                w.writerow([r["id"], r["uid"], r["uname"], r["name"], r["afrom"], r["ato"],
+                            f"{r['km']:.0f}", f"{r['hours']:.1f}",
+                            "LUX" if r["cls"] == "l" else "COMFORT",
+                            r["eur"], r["uah"], r["status"], ts(r["created"])])
+            await c.message.answer_document(
+                BufferedInputFile(buf.getvalue().encode("utf-8-sig"), "bookings.csv"),
+                caption="📥 Заявки на бронювання")
+            return
+        await bk_list(c, uid, 0); return
+
     if sec == "cl":                       # 🖱 натискання кнопок
         if arg == "n":                    # хто тиснув конкретну кнопку
             await clicks_node(c, uid, I(arg2), I(arg3)); return
