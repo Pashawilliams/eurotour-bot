@@ -277,6 +277,15 @@ TARIFF_L = [(6, 8, 90, 4670), (8, 10, 100, 5190), (10, 12, 130, 6740), (12, 14, 
             (45, 999, 270, 14000)]
 
 SYS_DEF = {
+    "bk_sumtit": {"uk": "🧾 <b>ПЕРЕВІРТЕ ЗАМОВЛЕННЯ</b>", "ru": "🧾 <b>ПРОВЕРЬТЕ ЗАКАЗ</b>", "pl": "🧾 <b>SPRAWDŹ ZAMÓWIENIE</b>", "en": "🧾 <b>CHECK YOUR ORDER</b>"},
+    "bk_s_from": {"uk": "Звідки", "ru": "Откуда", "pl": "Skąd", "en": "From"},
+    "bk_s_to": {"uk": "Куди", "ru": "Куда", "pl": "Dokąd", "en": "To"},
+    "bk_s_cls": {"uk": "Клас", "ru": "Класс", "pl": "Klasa", "en": "Class"},
+    "bk_check": {"uk": "Усе вірно? Натисніть «Підтвердити бронь» — і ми зв'яжемося з вами.", "ru": "Всё верно? Нажмите «Подтвердить бронь» — и мы свяжемся с вами.", "pl": "Wszystko się zgadza? Kliknij „Potwierdź rezerwację” — skontaktujemy się z Tobą.", "en": "All correct? Tap “Confirm booking” — we'll get in touch with you."},
+    "bk_ok": {"uk": "✅ Підтвердити бронь", "ru": "✅ Подтвердить бронь", "pl": "✅ Potwierdź rezerwację", "en": "✅ Confirm booking"},
+    "bk_done": {"uk": "✅ <b>БРОНЬ ПРИЙНЯТО</b>", "ru": "✅ <b>БРОНЬ ПРИНЯТА</b>", "pl": "✅ <b>REZERWACJA PRZYJĘTA</b>", "en": "✅ <b>BOOKING RECEIVED</b>"},
+    "bk_num": {"uk": "Номер", "ru": "Номер", "pl": "Numer", "en": "Number"},
+    "bk_soon": {"uk": "Ми вже отримали вашу заявку — менеджер зв'яжеться з вами найближчим часом.\nЗа потреби напишіть нам самі:", "ru": "Мы уже получили вашу заявку — менеджер свяжется с вами в ближайшее время.\nПри необходимости напишите нам сами:", "pl": "Otrzymaliśmy Twoje zgłoszenie — menedżer skontaktuje się wkrótce.\nW razie potrzeby napisz do nas:", "en": "We've received your request — a manager will contact you shortly.\nFeel free to message us:"},
     "bk": {"uk": "🟢 Забронювати поїздку", "ru": "🟢 Забронировать поездку",
            "pl": "🟢 Zarezerwuj przejazd", "en": "🟢 Book a trip"},
     "bk_from": {"uk": "📍 <b>Звідки вас забрати?</b>\n\nНапишіть адресу: місто, вулиця, будинок.\nНаприклад: <i>Дніпро, вул. Робоча, 166а</i>\n\nМожна також надіслати 📎 геолокацію.",
@@ -1036,52 +1045,126 @@ async def _fetch(url: str, headers: dict | None = None, timeout: int = 20) -> di
 def _short_addr(full: str) -> str:
     """Скорочує довгий рядок адреси до читабельного: вулиця, будинок, місто, країна."""
     parts = [p.strip() for p in (full or "").split(",") if p.strip()]
+    # прибираємо поштові індекси й адмінодиниці, які лише засмічують рядок
+    drop = ("район", "область", "rejon", "county", "district", "voivodeship",
+            "województwo", "oblast", "raion", "муніципалітет", "громада")
+    cl = [p for p in parts
+          if not (p.replace("-", "").replace(" ", "").isdigit() and len(p) >= 4)
+          and not any(d in p.lower() for d in drop)]
+    parts = cl or parts
     if len(parts) <= 4:
         return ", ".join(parts)
     return ", ".join(parts[:3] + [parts[-1]])
 
 
+def _norm_query(q: str) -> str:
+    """Чистить те, що клієнт написав від руки: скорочення, зайві слова, пунктуацію.
+
+    «м.Дніпро вул.Робоча буд.166а» → «Дніпро Робоча 166а» — так геокодер
+    знаходить адресу значно надійніше."""
+    q = " ".join((q or "").replace("\n", " ").split())
+    q = re.sub(r"[;|]+", ",", q)
+    q = re.sub(r"\b(кв|apt|кімн)\.?\s*\d+\w*", "", q, flags=re.I)   # квартира геокодеру не потрібна
+    # Короткі скорочення прибираємо ТІЛЬКИ з крапкою («м.Дніпро»), інакше
+    # регулярка з'їдала б першу літеру назви («д» у «Дніпро»).
+    short = (r"\b(м|мiст|міст|г|с|смт|пгт|вул|ул|str|st|ul|просп|пр|al|бул|пл|"
+             r"пров|шосе|шоссе|наб|буд|дом|д|nr|кв|под|під|корп)\.\s*"
+             r"(?=[\w\u0400-\u04ff])")
+    q = re.sub(short, "", q, flags=re.I)
+    # Повні слова безпечні й без крапки
+    full = (r"\b(місто|город|вулиця|улица|street|ulica|проспект|prospekt|aleja|"
+            r"бульвар|площа|площадь|plac|переулок|провулок|набережна|набережная|"
+            r"будинок|house|квартира|apt|подъезд|корпус)\b\.?\s*")
+    q = re.sub(full, " ", q, flags=re.I)
+    q = re.sub(r"№\s*", "", q)
+    q = re.sub(r"[^\w\s,./'\-\u0400-\u04ff]", " ", q, flags=re.U)
+    q = re.sub(r"\s*,\s*", ", ", q)
+    q = re.sub(r"(,\s*)+", ", ", q).strip(" ,.")
+    return " ".join(q.split())
+
+
+def _dedup(found: list[dict]) -> list[dict]:
+    """Прибирає варіанти, що вказують фактично в одну точку або мають однакову назву."""
+    out: list[dict] = []
+    for f in found:
+        nm = " ".join((f.get("name") or "").lower().split())
+        if not nm:
+            continue
+        dup = False
+        for o in out:
+            if nm == " ".join(o["name"].lower().split()):
+                dup = True; break
+            if abs(f["lat"] - o["lat"]) < 0.0015 and abs(f["lon"] - o["lon"]) < 0.0015:
+                dup = True; break
+        if not dup:
+            out.append(f)
+    return out[:5]
+
+
 async def geocode(query: str, lang: str = "uk") -> list[dict]:
-    """Шукає адресу. Повертає до 5 варіантів: {name, lat, lon}."""
-    q = " ".join((query or "").split())[:180]
-    if len(q) < 3:
+    """Шукає адресу. Повертає до 5 варіантів: {name, lat, lon}.
+
+    Пробуємо кілька формулювань запиту й кілька сервісів — клієнт пише адресу
+    як завгодно, а знайти її треба з першого разу."""
+    raw = " ".join((query or "").split())[:180]
+    if len(raw) < 3:
         return []
-    ck = hashlib.md5(f"{lang}|{q.lower()}".encode()).hexdigest()
+    ck = hashlib.md5(f"{lang}|{raw.lower()}".encode()).hexdigest()
     row = await q1("SELECT data,ts FROM geocache WHERE q=?", ck)
     if row and now() - (row["ts"] or 0) < GEO_TTL:
         with suppress(Exception):
-            return json.loads(row["data"])
+            cached = json.loads(row["data"])
+            if cached:
+                return cached
+    norm = _norm_query(raw)
+    # варіанти запиту: очищений → як написав клієнт → без номера будинку
+    tries: list[str] = []
+    for c in (norm, raw, re.sub(r"[\d]+\s*[а-яa-z]?\s*$", "", norm).strip(" ,")):
+        c = " ".join(c.split())
+        if len(c) >= 3 and c.lower() not in [t.lower() for t in tries]:
+            tries.append(c)
     out: list[dict] = []
-    if GMAPS_KEY:
-        u = ("https://maps.googleapis.com/maps/api/geocode/json?"
-             + urllib.parse.urlencode({"address": q, "language": lang, "key": GMAPS_KEY}))
-        d = await _fetch(u)
-        for r in (d or {}).get("results", [])[:5]:
-            loc = r.get("geometry", {}).get("location", {})
-            if loc:
-                out.append({"name": r.get("formatted_address", q),
-                            "lat": loc["lat"], "lon": loc["lng"]})
-    if not out:
-        u = ("https://nominatim.openstreetmap.org/search?"
-             + urllib.parse.urlencode({"q": q, "format": "json", "limit": 5,
-                                       "accept-language": lang}))
-        d = await _fetch(u, {"User-Agent": HTTP_UA})
-        for r in (d or [])[:5]:
-            with suppress(Exception):
-                out.append({"name": _short_addr(r["display_name"]),
-                            "lat": float(r["lat"]), "lon": float(r["lon"])})
-    if not out:      # запасний геокодер
-        u = "https://photon.komoot.io/api/?" + urllib.parse.urlencode(
-            {"q": q, "limit": 5, "lang": "en" if lang not in ("uk", "ru", "de", "fr") else lang})
-        d = await _fetch(u)
-        for f in (d or {}).get("features", [])[:5]:
-            p, g = f.get("properties", {}), f.get("geometry", {}).get("coordinates")
-            if not g:
-                continue
-            nm = ", ".join(x for x in [
-                " ".join(y for y in [p.get("street") or p.get("name"), p.get("housenumber")] if y),
-                p.get("city") or p.get("county"), p.get("country")] if x)
-            out.append({"name": nm or q, "lat": g[1], "lon": g[0]})
+    for attempt, q in enumerate(tries):
+        if GMAPS_KEY:
+            u = ("https://maps.googleapis.com/maps/api/geocode/json?"
+                 + urllib.parse.urlencode({"address": q, "language": lang, "key": GMAPS_KEY}))
+            d = await _fetch(u)
+            for r in (d or {}).get("results", [])[:5]:
+                loc = r.get("geometry", {}).get("location", {})
+                if loc:
+                    out.append({"name": r.get("formatted_address", q),
+                                "lat": loc["lat"], "lon": loc["lng"]})
+        if not out:
+            u = ("https://nominatim.openstreetmap.org/search?"
+                 + urllib.parse.urlencode({"q": q, "format": "jsonv2", "limit": 6,
+                                           "addressdetails": 1,
+                                           "accept-language": f"{lang},uk,en"}))
+            d = await _fetch(u, {"User-Agent": HTTP_UA})
+            for r in (d or [])[:6]:
+                with suppress(Exception):
+                    out.append({"name": _short_addr(r["display_name"]),
+                                "lat": float(r["lat"]), "lon": float(r["lon"])})
+        if not out:      # запасний геокодер — інша база, ловить те, що не знайшов OSM
+            u = "https://photon.komoot.io/api/?" + urllib.parse.urlencode(
+                {"q": q, "limit": 6,
+                 "lang": lang if lang in ("uk", "ru", "de", "fr", "it", "en") else "en"})
+            d = await _fetch(u)
+            for f in (d or {}).get("features", [])[:6]:
+                p, g = f.get("properties", {}), f.get("geometry", {}).get("coordinates")
+                if not g:
+                    continue
+                nm = ", ".join(x for x in [
+                    " ".join(y for y in [p.get("street") or p.get("name"),
+                                         p.get("housenumber")] if y),
+                    p.get("city") or p.get("district") or p.get("county"),
+                    p.get("state") if not (p.get("city") or p.get("county")) else None,
+                    p.get("country")] if x)
+                out.append({"name": nm or q, "lat": g[1], "lon": g[0]})
+        out = _dedup(out)
+        if out:
+            break
+        if attempt < len(tries) - 1:
+            await asyncio.sleep(1.05)     # ліміт Nominatim ~1 запит/с
     if out:
         await ex("INSERT OR REPLACE INTO geocache(q,data,ts) VALUES(?,?,?)",
                  ck, json.dumps(out, ensure_ascii=False), now())
@@ -1089,10 +1172,26 @@ async def geocode(query: str, lang: str = "uk") -> list[dict]:
 
 
 async def route_calc(lat1: float, lon1: float, lat2: float, lon2: float) -> tuple[float, float] | None:
-    """Маршрут між точками. Повертає (км, чистих годин) або None."""
+    """Маршрут між точками. Повертає (км, чистих годин) або None.
+
+    Результат перевіряємо на здоровий глузд: сервіс іноді віддає порожній
+    або явно битий маршрут, а клієнту не можна показати хибну ціну."""
+    try:
+        lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
+    except (TypeError, ValueError):
+        return None
+    # пряма відстань — нижня межа правдоподібності
+    import math
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    h = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2)
+    air = 6371 * 2 * math.asin(min(1, math.sqrt(h)))
+    if air < 0.3:                      # адреси збіглися — це не поїздка
+        return None
     ck = f"{lat1:.4f},{lon1:.4f}>{lat2:.4f},{lon2:.4f}"
     row = await q1("SELECT km,hours,ts FROM routecache WHERE k=?", ck)
-    if row and now() - (row["ts"] or 0) < ROUTE_TTL:
+    if row and now() - (row["ts"] or 0) < ROUTE_TTL and (row["km"] or 0) > 0 and (row["hours"] or 0) > 0:
         return row["km"], row["hours"]
     km = hrs = None
     if GMAPS_KEY:
@@ -1106,14 +1205,27 @@ async def route_calc(lat1: float, lon1: float, lat2: float, lon2: float) -> tupl
             if leg.get("duration") and leg.get("distance"):
                 km = leg["distance"]["value"] / 1000
                 hrs = leg["duration"]["value"] / 3600
-    if km is None:
-        u = (f"https://router.project-osrm.org/route/v1/driving/"
-             f"{lon1},{lat1};{lon2},{lat2}?overview=false")
-        d = await _fetch(u)
-        for rt in (d or {}).get("routes", [])[:1]:
-            km = rt["distance"] / 1000
-            hrs = rt["duration"] / 3600
-    if km is None:
+    if km is None:                      # OSRM — основний безкоштовний маршрутизатор
+        for host in ("https://router.project-osrm.org",):
+            u = f"{host}/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=false"
+            d = await _fetch(u)
+            if (d or {}).get("code") not in (None, "Ok"):
+                continue
+            for rt in (d or {}).get("routes", [])[:1]:
+                with suppress(Exception):
+                    km = float(rt["distance"]) / 1000
+                    hrs = float(rt["duration"]) / 3600
+            if km:
+                break
+    if not km or not hrs or km <= 0 or hrs <= 0:
+        return None
+    # перевірки правдоподібності: дорога не коротша за пряму й не абсурдно швидка
+    if km < air * 0.85 or km > air * 6 + 200:
+        log.warning("маршрут відкинуто: %.0f км при прямій %.0f км", km, air)
+        return None
+    speed = km / hrs
+    if speed < 8 or speed > 130:
+        log.warning("маршрут відкинуто: середня швидкість %.0f км/год", speed)
         return None
     await ex("INSERT OR REPLACE INTO routecache(k,km,hours,ts) VALUES(?,?,?,?)",
              ck, km, hrs, now())
@@ -1122,11 +1234,22 @@ async def route_calc(lat1: float, lon1: float, lat2: float, lon2: float) -> tupl
 
 async def tariff_for(hours: float, cls: str) -> tuple[int, int] | None:
     """Ціна за годинами в дорозі. Повертає (євро, гривні) або None, якщо поза сіткою."""
-    r = await q1("SELECT eur,uah FROM tariff WHERE cls=? AND lo<=? AND hi>? LIMIT 1",
+    try:
+        hours = float(hours)
+    except (TypeError, ValueError):
+        return None
+    if hours <= 0:
+        return None
+    cls = "l" if str(cls).lower().startswith("l") else "c"
+    r = await q1("SELECT eur,uah FROM tariff WHERE cls=? AND lo<=? AND hi>? ORDER BY lo DESC LIMIT 1",
                  cls, hours, hours)
-    if r:
-        return r["eur"], r["uah"]
-    return None
+    if not r:
+        # довші за верхню межу поїздки рахуємо за останнім діапазоном
+        top = await q1("SELECT eur,uah,hi FROM tariff WHERE cls=? ORDER BY lo DESC LIMIT 1", cls)
+        if top and hours >= (top["hi"] or 0):
+            return top["eur"], top["uah"]
+        return None
+    return r["eur"], r["uah"]
 
 
 def fmt_hours(h: float, lang: str = "uk") -> str:
@@ -1365,7 +1488,17 @@ async def build_kb(nid: int, lang: str, admin: bool, live: bool) -> InlineKeyboa
                 items.append(B(label, f"n:{c['id']}"))
         except Exception:
             items.append(B(label, f"n:{c['id']}"))
+    # 🟢 «Забронювати поїздку» — головна дія: завжди окремим широким рядком
+    # зверху, інакше в сітці по двоє напис обрізається й погано читається.
+    kids = await children(nid, admin)
+    big: list[InlineKeyboardButton] = []
+    if nid == 1:
+        for idx in range(len(kids) - 1, -1, -1):
+            if kids[idx]["typ"] == "book":
+                big.insert(0, items.pop(idx))
     rows = grid(items, node["roww"] or 2)
+    for bt in reversed(big):
+        rows.insert(0, [bt])
     if nid != 1 and CFG.get("backbtn", "1") == "1":
         parent = node["parent"] or 1
         rows.append([B(await T("back", lang), "home" if parent == 1 else f"n:{parent}")])
@@ -1541,10 +1674,16 @@ async def bk_classes(ev, uid: int) -> None:
 
 
 async def bk_price(ev, uid: int, cls: str) -> None:
-    """Фінальний екран: ціна клієнта + заклик зв'язатися з нами."""
+    """Крок 4 — контрольна зведення + кнопка «Підтвердити бронь».
+
+    Заявку тут НЕ створюємо: клієнт ще може порівняти класи чи змінити маршрут.
+    Запис у базу й розсилка — лише після натискання «Підтвердити»."""
     lang = await ulang(uid)
     st = ST.get(uid) or {}
-    hrs = st.get("hours", 0)
+    hrs = st.get("hours") or 0
+    if not hrs or not st.get("fname") or not st.get("tname"):
+        await bk_start(ev, uid); return
+    cls = "l" if cls == "l" else "c"
     pr = await tariff_for(hrs, cls)
     if not pr:
         body, rows = await contact_block(lang)
@@ -1552,64 +1691,117 @@ async def bk_price(ev, uid: int, cls: str) -> None:
         await render(ev, await T("bk_short", lang) + ("\n\n" + body if body else ""), kb(rows))
         return
     eur, uah = pr
+    st.update(cls=cls, eur=eur, uah=uah, k="bk_sum")
+    ST[uid] = st
     nm = await T("bk_l" if cls == "l" else "bk_c", lang)
-    # зберігаємо заявку — власник побачить її в панелі
-    bid = await ex("INSERT INTO book(uid,afrom,ato,lat1,lon1,lat2,lon2,km,hours,cls,eur,uah,"
-                   "status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'new',?)",
-                   uid, st.get("fname", ""), st.get("tname", ""), st.get("flat"), st.get("flon"),
-                   st.get("tlat"), st.get("tlon"), st.get("km", 0), hrs, cls, eur, uah, now())
-    body, crows = await contact_block(lang)
-    txt = (f"{nm}\n"
+    km = st.get("km") or 0
+    txt = (f"{await T('bk_sumtit', lang)}\n"
            f"━━━━━━━━━━━━━━━━━━\n"
-           f"📍 {esc(st.get('fname', ''))}\n"
-           f"🏁 {esc(st.get('tname', ''))}\n\n"
-           f"🕐 {await T('bk_road', lang)}: ~{fmt_hours(hrs, lang)}\n"
-           f"💰 {await T('bk_cost', lang)}: <b>{eur} €</b>\n"
-           f"🇺🇦 {uah:,} грн".replace(",", " ") + "\n"
+           f"📍 <b>{await T('bk_s_from', lang)}:</b>\n{esc(st.get('fname', ''))}\n\n"
+           f"🏁 <b>{await T('bk_s_to', lang)}:</b>\n{esc(st.get('tname', ''))}\n\n"
+           f"📏 {await T('bk_dist', lang)}: <b>{km:,.0f} км</b>\n".replace(",", " ") +
+           f"🕐 {await T('bk_road', lang)}: <b>~{fmt_hours(hrs, lang)}</b>\n"
+           f"🚌 {await T('bk_s_cls', lang)}: <b>{nm}</b>\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
+           f"💰 {await T('bk_cost', lang)}: <b>{eur} €</b>  ·  <b>{uah:,} грн</b>".replace(",", " ") + "\n"
            f"━━━━━━━━━━━━━━━━━━\n\n"
-           f"{await T('bk_cta', lang)}\n\n"
-           f"{body}")
+           f"{await T('bk_note', lang)}\n\n"
+           f"{await T('bk_check', lang)}")
     other = "l" if cls == "c" else "c"
+    rows = [[B(await T("bk_ok", lang), f"bk:ok:{cls}")],
+            [B(f"{await T('bk_cmp', lang)} "
+               f"{await T('bk_l' if other == 'l' else 'bk_c', lang)}", f"bk:c:{other}")],
+            [B(await T("bk_other", lang), "bk:new")],
+            [B(await T("back", lang), "home")]]
+    await render(ev, txt, kb(rows))
+
+
+async def bk_confirm(ev, uid: int, cls: str) -> None:
+    """Клієнт натиснув «Підтвердити бронь» — фіксуємо заявку й повідомляємо команду."""
+    lang = await ulang(uid)
+    st = ST.get(uid) or {}
+    hrs = st.get("hours") or 0
+    if not hrs or not st.get("fname") or not st.get("tname"):
+        await bk_start(ev, uid); return
+    cls = "l" if cls == "l" else "c"
+    pr = await tariff_for(hrs, cls)
+    if not pr:
+        await bk_price(ev, uid, cls); return
+    eur, uah = pr
+    # захист від дубля: та сама заявка за останні 2 хвилини — не створюємо другу
+    dup = await q1("SELECT id FROM book WHERE uid=? AND afrom=? AND ato=? AND cls=? AND created>? "
+                   "ORDER BY id DESC LIMIT 1",
+                   uid, st.get("fname", ""), st.get("tname", ""), cls, now() - 120)
+    if dup:
+        bid = dup["id"]
+    else:
+        bid = await ex("INSERT INTO book(uid,afrom,ato,lat1,lon1,lat2,lon2,km,hours,cls,eur,uah,"
+                       "status,created) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'new',?)",
+                       uid, st.get("fname", ""), st.get("tname", ""), st.get("flat"), st.get("flon"),
+                       st.get("tlat"), st.get("tlon"), st.get("km", 0), hrs, cls, eur, uah, now())
+    body, crows = await contact_block(lang)
+    nm = await T("bk_l" if cls == "l" else "bk_c", lang)
+    txt = (f"{await T('bk_done', lang)}\n"
+           f"━━━━━━━━━━━━━━━━━━\n"
+           f"🔖 {await T('bk_num', lang)}: <b>#{bid}</b>\n"
+           f"📍 {esc(st.get('fname', ''))}\n"
+           f"🏁 {esc(st.get('tname', ''))}\n"
+           f"🚌 {nm}  ·  <b>{eur} €</b> / {uah:,} грн".replace(",", " ") + "\n"
+           f"━━━━━━━━━━━━━━━━━━\n\n"
+           f"{await T('bk_soon', lang)}\n\n"
+           f"{body}")
     rows = list(crows)
-    rows.append([B(f"{await T('bk_cmp', lang)} "
-                   f"{await T('bk_l' if other == 'l' else 'bk_c', lang)}", f"bk:c:{other}")])
     rows.append([B(await T("bk_other", lang), "bk:new")])
     rows.append([B(await T("back", lang), "home")])
+    ST.pop(uid, None)
     await render(ev, txt, kb(rows))
     with suppress(Exception):
         await bk_notify(ev.bot, uid, bid)
 
 
 async def bk_notify(bot: Bot, uid: int, bid: int) -> None:
-    """Заявка менеджеру — щоб він побачив розрахунок і міг першим написати."""
+    """Підтверджена бронь — усім, хто працює із заявками.
+
+    Отримують: власник, адміни з повним доступом, менеджери звернень,
+    груповий чат бронювань (або чат звернень, якщо окремий не заданий)."""
     b = await q1("SELECT * FROM book WHERE id=?", bid)
     if not b:
         return
     u = await q1("SELECT * FROM users WHERE id=?", uid)
     un = f"@{u['uname']}" if u and u["uname"] else "@ немає"
     cls = "✨ LUX" if b["cls"] == "l" else "💺 COMFORT"
-    txt = (f"🟢 <b>РОЗРАХУНОК ПОЇЗДКИ #{bid}</b>\n"
+    txt = (f"🟢 <b>НОВА БРОНЬ #{bid}</b>\n"
            f"━━━━━━━━━━━━━━━━━━\n"
            f"👤 {esc((u['name'] if u else '') or uid)}\n"
            f"🔗 {esc(un)}\n"
            f"🆔 <code>{uid}</code>\n\n"
-           f"📍 {esc(b['afrom'])}\n"
-           f"🏁 {esc(b['ato'])}\n"
-           f"📏 {b['km']:.0f} км · 🕐 {b['hours']:.1f} год\n\n"
-           f"{cls}\n"
+           f"📍 <b>Звідки:</b> {esc(b['afrom'])}\n"
+           f"🏁 <b>Куди:</b> {esc(b['ato'])}\n"
+           f"📏 {b['km']:.0f} км · 🕐 {fmt_hours(b['hours'])}\n\n"
+           f"🚌 {cls}\n"
            f"💰 <b>{b['eur']} €</b> / {b['uah']:,} грн".replace(",", " ") + "\n"
            f"🕐 {ts(b['created'])}")
     rows = kb([[B("✍️ Написати клієнту", f"p:bo:w:{bid}")],
                [B("✅ Опрацьовано", f"p:bo:done:{bid}")]])
+    seen: set[int] = set()
     tg: list[int] = []
+
+    def add(x) -> None:
+        with suppress(TypeError, ValueError):
+            i = int(x)
+            if i and i not in seen:
+                seen.add(i); tg.append(i)
+
+    # 1) груповий чат: окремий чат броней, інакше загальний робочий чат.
+    # Броні шлемо туди незалежно від тумблера звернень — заявка не має загубитись.
     if CFG.get("bkchat"):
-        with suppress(ValueError):
-            tg.append(int(CFG["bkchat"]))
-    if not tg and CFG.get("tochat", "1") == "1" and CFG.get("chat_id"):
-        with suppress(ValueError):
-            tg.append(int(CFG["chat_id"]))
-    if OWNER_ID and OWNER_ID not in tg:
-        tg.append(OWNER_ID)
+        add(CFG["bkchat"])
+    elif CFG.get("chat_id"):
+        add(CFG["chat_id"])
+    # 2) власник + усі, хто має доступ до заявок (full і tickets), окрім заблокованих
+    add(OWNER_ID)
+    for a in await qa("SELECT id,role FROM admins WHERE role IN ('owner','full','tickets')"):
+        add(a["id"])
     for t in tg:
         with suppress(TelegramBadRequest, TelegramForbiddenError, Exception):
             await bot.send_message(t, txt, reply_markup=rows)
@@ -1741,10 +1933,14 @@ async def cb_book(c: CallbackQuery) -> None:
             await bk_start(c, uid); return
         which = "from" if st.get("k") == "bk_pick_from" else "to"
         await bk_take(c, uid, picks[i], which); return
-    if act == "c":                         # обрано клас
+    if act == "c":                         # обрано клас → контрольна зведення
         if not st.get("hours"):
             await bk_start(c, uid); return
         await bk_price(c, uid, "l" if arg == "l" else "c"); return
+    if act == "ok":                        # підтвердження броні
+        if not st.get("hours"):
+            await bk_start(c, uid); return
+        await bk_confirm(c, uid, "l" if arg == "l" else "c"); return
 
 
 @user_r.callback_query(F.data == "home", F.message.chat.type == "private")
