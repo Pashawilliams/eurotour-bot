@@ -747,8 +747,13 @@ async def init_db() -> None:
                     await db.execute("INSERT OR IGNORE INTO tr(node,lang,label) VALUES(?,?,?)",
                                      (aid, l, SYS_DEF["ai"][l]))
                 log.info("Кнопку «AI-консультант» створено (node %s)", aid)
+                global _AI_NID
+                _AI_NID = aid
             await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('aibtn','1')")
     await db.commit()
+    # якщо підписи кнопки ШІ колись зачепив автопереклад — повертаємо як було
+    with suppress(Exception):
+        await ai_fix_labels()
 
 
 
@@ -833,9 +838,49 @@ async def translate(text: str, to: str, frm: str) -> str:
     return res
 
 
+_AI_NID: int | None = None
+
+
+async def ai_node_id() -> int:
+    """id вузла AI-консультанта (кешується)."""
+    global _AI_NID
+    if _AI_NID is None:
+        r = await q1("SELECT id FROM nodes WHERE typ='ai' LIMIT 1")
+        _AI_NID = int(r["id"]) if r else 0
+    return _AI_NID
+
+
+async def ai_fix_labels() -> int:
+    """Повертає канонічні підписи кнопки ШІ, якщо їх зачепив автопереклад."""
+    nid = await ai_node_id()
+    if not nid:
+        return 0
+    fixed = 0
+    for lg in langs_on():
+        want = SYS_DEF["ai"].get(lg)
+        if not want:
+            continue
+        cur = await q1("SELECT label,machine FROM tr WHERE node=? AND lang=?", nid, lg)
+        if cur and cur["label"] == want and not cur["machine"]:
+            continue
+        await ex("INSERT INTO tr(node,lang,label,machine) VALUES(?,?,?,0) "
+                 "ON CONFLICT(node,lang) DO UPDATE SET label=?,machine=0",
+                 nid, lg, want, want)
+        fixed += 1
+    if fixed:
+        log.info("Підписи кнопки ШІ відновлено: %s", fixed)
+    return fixed
+
+
 async def autotranslate_node(nid: int, src_lang: str) -> int:
     """Розкидає текст вузла на всі інші мови. Повертає кількість перекладених."""
     if CFG.get("autotr", "1") != "1":
+        return 0
+    # Вузол AI-консультанта — службовий: його підписи задані вручну кожною
+    # мовою (SYS_DEF["ai"]). Машинний переклад робив з «AI-консультант»
+    # то «ШІ-консультант», то довжелезне «Konsultant sztucznej inteligencji»,
+    # тому цей вузол автоперекладу не підлягає.
+    if await ai_node_id() == nid:
         return 0
     src = await q1("SELECT label,body FROM tr WHERE node=? AND lang=?", nid, src_lang)
     if not src:
@@ -1011,8 +1056,11 @@ async def translate_missing() -> int:
     deflang = CFG.get("deflang", "uk")
     on = langs_on()
     total = 0
+    ai_nid = await ai_node_id()
     for n in await qa("SELECT id FROM nodes WHERE typ<>'root' ORDER BY id"):
         nid = n["id"]
+        if nid == ai_nid:              # службовий вузол ШІ — не перекладаємо
+            continue
         rows = {r["lang"]: r for r in await qa("SELECT lang,label,body,machine FROM tr WHERE node=?", nid)}
         # мова-джерело: ручний підпис адміна, інакше мова за умовчанням
         src = next((l for l, r in rows.items() if not r["machine"] and (r["label"] or r["body"])), "")
