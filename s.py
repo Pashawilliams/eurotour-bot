@@ -1509,6 +1509,11 @@ AI_FACTS = """КОМПАНІЯ: EUROTOUR — пасажирські переве
 Понад норму — 1 кг / 1 EUR. Бронювання конкретного місця в салоні — 10 EUR.
 
 ЗНИЖКИ: діти до 16 років — 15%, пенсіонери — 10%. Нараховуються автоматично.
+Пиши про знижки ДОСЛІВНО так (скопіюй потрібною мовою, не переписуй по-своєму):
+  uk: «Дітям до 16 років — знижка 15%, пенсіонерам — 10%. Знижка нараховується автоматично.»
+  ru: «Детям до 16 лет — скидка 15%, пенсионерам — 10%. Скидка начисляется автоматически.»
+  pl: «Dzieci do 16 lat — zniżka 15%, emeryci — 10%. Zniżka naliczana jest automatycznie.»
+  en: «Children under 16 get 15% off, seniors 10%. The discount applies automatically.»
 
 ЧАС У ДОРОЗІ орієнтовний: залежить від черги на кордоні, сезону та зупинок.
 Менеджери підбирають оптимальний пункт пропуску, щоб пройти швидше.
@@ -1539,10 +1544,10 @@ AI_CONTACTS = """Менеджери EUROTOUR:
 AI_RULES = """ТИ — AI-консультант EUROTOUR. Так і представляйся, якщо запитають.
 
 ЯК ВІДПОВІДАТИ:
-• Мова: ВИКЛЮЧНО та, якою написав клієнт. Написав польською — вся відповідь
-  польською, жодного слова кирилицею. Українською — українською.
 • Коротко: 2-4 речення. Тон ввічливий і солідний, емодзі дозовано (0-2).
 • Простий текст. Не використовуй Markdown-розмітку (* _ #) і HTML-теги.
+• Пиши без помилок і друкарських одруківок. Перечитай відповідь перед
+  надсиланням: кожне слово має бути написане правильно.
 
 ЗАБОРОНЕНО:
 • Вигадувати факти, яких немає вище. Не знаєш — так і скажи та запропонуй
@@ -1560,6 +1565,95 @@ AI_RULES = """ТИ — AI-консультант EUROTOUR. Так і предс�
 хоче подзвонити, скаржиться, має нестандартну ситуацію або ти не можеш
 допомогти — дай контакти менеджерів і скажи, що можна натиснути кнопку
 «Написати менеджеру» під повідомленням. Сайт даєш, коли просять або доречно."""
+
+
+# ─────────── визначення мови повідомлення ───────────
+# Модель раніше сама «вгадувала» мову й могла відповісти українською
+# на російський текст. Тепер мову визначаємо в коді й наказуємо явно.
+AI_LANGNAME = {"uk": "УКРАЇНСЬКОЮ", "ru": "РУССКИМ ЯЗЫКОМ",
+               "pl": "PO POLSKU", "en": "IN ENGLISH"}
+
+_UK_ONLY = set("їієґЇІЄҐ")            # літери, яких немає в російській
+_RU_ONLY = set("ёъыэЁЪЫЭ")            # літери, яких немає в українській
+_PL_ONLY = set("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ")
+_RU_WORDS = {"что", "как", "это", "если", "или", "где", "когда", "какие", "какая",
+             "сколько", "скидки", "скидка", "цена", "стоимость", "здравствуйте",
+             "привет", "спасибо", "пожалуйста", "можно", "нужно", "хочу", "вы",
+             "мне", "меня", "есть", "нет", "да", "билет", "поездка", "багаж",
+             "дети", "ребенок", "ребёнок", "пенсионерам", "добрый", "день"}
+_UK_WORDS = {"що", "як", "це", "якщо", "або", "де", "коли", "які", "яка", "скільки",
+             "знижки", "знижка", "ціна", "вартість", "вітаю", "дякую", "будь",
+             "ласка", "можна", "потрібно", "хочу", "ви", "мені", "мене", "є",
+             "немає", "так", "квиток", "поїздка", "багаж", "діти", "дитина",
+             "пенсіонерам", "добрий", "день"}
+
+
+def ai_detect_lang(text: str, fallback: str = "uk") -> str:
+    """Визначає мову тексту клієнта: uk / ru / pl / en."""
+    t = (text or "").strip().lower()
+    if not t:
+        return fallback
+    if any(ch in _PL_ONLY for ch in t):
+        return "pl"
+    cyr = sum(1 for ch in t if "а" <= ch <= "я" or ch in "іїєґёъыэ")
+    lat = sum(1 for ch in t if "a" <= ch <= "z")
+    if cyr == 0 and lat > 0:
+        # латиниця: польська має характерні слова, інакше вважаємо англійською
+        if any(w in t for w in ("czy", "jak", "ile", "gdzie", "dzie", "prosz",
+                                "dzik", "chc", "mog", "jest", "nie ", "tak ")):
+            return "pl"
+        # надто коротка репліка («ok», «hi») — не привід міняти мову розмови
+        if lat < 4:
+            return fallback
+        return "en"
+    if cyr == 0:
+        return fallback
+    # кирилиця: розрізняємо українську та російську
+    has_uk = any(ch in _UK_ONLY for ch in t)
+    has_ru = any(ch in _RU_ONLY for ch in t)
+    if has_uk and not has_ru:
+        return "uk"
+    if has_ru and not has_uk:
+        return "ru"
+    words = set(re.findall(r"[а-яїієґёъыэ]+", t))
+    su, sr = len(words & _UK_WORDS), len(words & _RU_WORDS)
+    if su != sr:
+        return "uk" if su > sr else "ru"
+    if has_uk:
+        return "uk"
+    if has_ru:
+        return "ru"
+    return fallback
+
+
+def ai_lang_order(lang: str) -> str:
+    """Жорсткий наказ моделі щодо мови відповіді."""
+    name = AI_LANGNAME.get(lang, AI_LANGNAME["uk"])
+    extra = ""
+    if lang == "ru":
+        extra = (" Клиент написал ПО-РУССКИ. Не переходи на украинский: "
+                 "ни одного украинского слова, букв і, ї, є, ґ быть не должно.")
+    elif lang == "uk":
+        extra = (" Клієнт написав УКРАЇНСЬКОЮ. Не переходь на російську: "
+                 "жодного російського слова, літер ы, ъ, э, ё бути не повинно.")
+    elif lang == "pl":
+        extra = " Klient napisał PO POLSKU. Żadnej cyrylicy w odpowiedzi."
+    elif lang == "en":
+        extra = " The client wrote IN ENGLISH. No Cyrillic characters at all."
+    return (f"МОВА ВІДПОВІДІ: відповідай ВИКЛЮЧНО {name}.{extra} "
+            f"Це найважливіше правило — порушувати не можна.")
+
+
+def ai_lang_ok(text: str, want: str) -> bool:
+    """Чи не зірвалася модель на іншу мову (перевірка після відповіді)."""
+    t = (text or "").lower()
+    if want == "ru":
+        return not any(ch in _UK_ONLY for ch in t)
+    if want == "uk":
+        return not any(ch in _RU_ONLY for ch in t)
+    if want in ("pl", "en"):
+        return sum(1 for ch in t if "а" <= ch <= "я") < 3
+    return True
 
 
 def ai_on() -> bool:
@@ -1599,6 +1693,57 @@ async def ai_ask(messages: list[dict], maxtok: int = 420) -> str | None:
         except Exception as e:
             last = f"{model}:{type(e).__name__}"
     log.warning("AI: усі моделі недоступні (%s)", last)
+    return None
+
+
+async def ai_stream(messages: list[dict], on_chunk, maxtok: int = 420) -> str | None:
+    """Потокова відповідь: on_chunk(текст) викликається у міру надходження.
+
+    Телеграм не має справжнього стрімінгу, тому ефект друку робимо
+    редагуванням одного повідомлення. Якщо потік не вдався — вертаємо None,
+    і викликач падає на звичайний (не потоковий) запит.
+    """
+    if not AI_KEY:
+        return None
+    import aiohttp
+    hdr = {"Authorization": f"Bearer {AI_KEY}",
+           "Content-Type": "application/json",
+           "HTTP-Referer": "https://eurotour.pp.ua",
+           "X-Title": "EUROTOUR Bot"}
+    for model in AI_MODELS:
+        body = {"model": model, "messages": messages, "max_tokens": maxtok,
+                "temperature": 0.2, "stream": True}
+        acc = ""
+        try:
+            to = aiohttp.ClientTimeout(total=AI_TIMEOUT + 20)
+            async with aiohttp.ClientSession(timeout=to) as ses:
+                async with ses.post(AI_URL, json=body, headers=hdr) as r:
+                    if r.status != 200:
+                        continue
+                    async for raw in r.content:
+                        line = raw.decode("utf-8", "ignore").strip()
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            j = json.loads(data)
+                        except Exception:
+                            continue
+                        ch = (j.get("choices") or [{}])[0]
+                        if (ch.get("finish_reason") == "error") or j.get("error"):
+                            acc = ""
+                            break
+                        piece = (ch.get("delta") or {}).get("content") or ""
+                        if piece:
+                            acc += piece
+                            await on_chunk(acc)
+            out = ai_clean(acc)
+            if out:
+                return out
+        except Exception as e:
+            log.warning("AI stream %s: %s", model, type(e).__name__)
     return None
 
 
@@ -1654,36 +1799,80 @@ async def ai_start(c: CallbackQuery, uid: int) -> None:
 
 
 async def ai_reply(m: Message, uid: int) -> None:
-    """Обробка повідомлення клієнта до консультанта."""
-    lang = await ulang(uid)
+    """Обробка повідомлення клієнта до консультанта (з ефектом набору тексту)."""
+    ulng = await ulang(uid)
     txt = (m.text or m.caption or "").strip()
     if not txt:
-        await m.answer(await T("ai_text", lang)); return
+        await m.answer(await T("ai_text", ulng)); return
+
+    kbrd = ai_kb(ulng, await T("home", ulng), await T("ai_mgr", ulng))
     if not ai_on():
-        await m.answer(await T("ai_off", lang) + "\n\n" + AI_CONTACTS,
-                       reply_markup=ai_kb(lang, await T("home", lang),
-                                          await T("ai_mgr", lang)))
+        await m.answer(await T("ai_off", ulng) + "\n\n" + AI_CONTACTS,
+                       reply_markup=kbrd)
         return
 
-    wait = await m.answer(await T("ai_wait", lang))
-    hist = await ai_history(uid)
-    sysmsg = (AI_RULES + "\n\nФАКТИ ПРО КОМПАНІЮ:\n" + AI_FACTS +
+    # мову беремо з самого тексту, а не з налаштувань меню:
+    # клієнт може обрати UA в меню, але написати російською
+    lang = ai_detect_lang(txt, ulng)
+    sysmsg = (ai_lang_order(lang) + "\n\n" + AI_RULES +
+              "\n\nФАКТИ ПРО КОМПАНІЮ:\n" + AI_FACTS +
               "\n\nКОНТАКТИ:\n" + AI_CONTACTS)
+    hist = await ai_history(uid)
     msgs = [{"role": "system", "content": sysmsg}] + hist + \
            [{"role": "user", "content": txt[:1500]}]
-    ans = await ai_ask(msgs)
+
     with suppress(Exception):
-        await wait.delete()
+        await m.bot.send_chat_action(m.chat.id, "typing")
+    bubble = await m.answer("▌")
+
+    # ── ефект друку: редагуємо одне повідомлення у міру надходження тексту ──
+    state = {"last": 0.0, "shown": "", "n": 0}
+
+    async def on_chunk(cur: str) -> None:
+        # Telegram обмежує частоту редагувань — оновлюємо не частіше ніж раз на 0.7 с
+        t = time.monotonic()
+        if t - state["last"] < 0.7 or len(cur) - state["n"] < 24:
+            return
+        state["last"] = t
+        state["n"] = len(cur)
+        body = ai_clean(cur)
+        if not body or body == state["shown"]:
+            return
+        state["shown"] = body
+        with suppress(Exception):
+            await bubble.edit_text(esc(body) + " ▌")
+
+    ans = await ai_stream(msgs, on_chunk)
+    if not ans:                                   # потік не пішов — звичайний запит
+        ans = await ai_ask(msgs)
+
+    # якщо модель зірвалася на іншу мову — один раз перепитуємо жорсткіше
+    if ans and not ai_lang_ok(ans, lang):
+        log.info("AI: відповідь не тією мовою (%s), повторюю", lang)
+        retry = [{"role": "system", "content": sysmsg},
+                 {"role": "user", "content": txt[:1500]},
+                 {"role": "assistant", "content": ans},
+                 {"role": "user", "content": ai_lang_order(lang) +
+                  " Перепиши попередню відповідь цією мовою. Лише текст відповіді."}]
+        fixed = await ai_ask(retry)
+        if fixed and ai_lang_ok(fixed, lang):
+            ans = fixed
 
     if not ans:
-        await m.answer(await T("ai_busy", lang) + "\n\n" + AI_CONTACTS,
-                       reply_markup=ai_kb(lang, await T("home", lang),
-                                          await T("ai_mgr", lang)))
+        with suppress(Exception):
+            await bubble.delete()
+        await m.answer(await T("ai_busy", ulng) + "\n\n" + AI_CONTACTS,
+                       reply_markup=kbrd)
         return
+
     await ai_remember(uid, "user", txt)
     await ai_remember(uid, "assistant", ans)
-    await m.answer(esc(ans), reply_markup=ai_kb(lang, await T("home", lang),
-                                                await T("ai_mgr", lang)))
+    try:
+        await bubble.edit_text(esc(ans), reply_markup=kbrd)
+    except TelegramBadRequest:
+        with suppress(Exception):
+            await bubble.delete()
+        await m.answer(esc(ans), reply_markup=kbrd)
 
 
 async def ai_summary(uid: int) -> str:
@@ -1737,7 +1926,7 @@ async def ai_admin(m: Message, uid: int, txt: str) -> None:
     lang = await ulang(uid)
     if not ai_on():
         await m.answer(await T("ai_off", lang)); return
-    wait = await m.answer("⏳")
+    wait = await m.answer("▌")
     facts = await ai_admin_facts()
     sysmsg = ("Ти — технічний помічник адміністратора бота EUROTOUR. "
               "Відповідай стисло, по суті, українською. Пояснюй, як влаштований бот, "
@@ -1745,12 +1934,28 @@ async def ai_admin(m: Message, uid: int, txt: str) -> None:
               "підказуєш, де в панелі це зробити руками. Не вигадуй чисел: бери їх "
               "лише з даних нижче. Без Markdown і HTML.\n\n" + facts)
     hist = await ai_history(uid)
-    ans = await ai_ask([{"role": "system", "content": sysmsg}] + hist +
-                       [{"role": "user", "content": txt[:1500]}], maxtok=600)
+    msgs = [{"role": "system", "content": sysmsg}] + hist + \
+           [{"role": "user", "content": txt[:1500]}]
+    st2 = {"last": 0.0, "n": 0}
+
+    async def on_chunk(cur: str) -> None:
+        t = time.monotonic()
+        if t - st2["last"] < 0.7 or len(cur) - st2["n"] < 24:
+            return
+        st2["last"] = t
+        st2["n"] = len(cur)
+        body = ai_clean(cur)
+        if body:
+            with suppress(Exception):
+                await wait.edit_text(esc(body) + " ▌")
+
+    ans = await ai_stream(msgs, on_chunk, maxtok=600) or await ai_ask(msgs, maxtok=600)
+    if not ans:
+        with suppress(Exception):
+            await wait.delete()
+        await m.answer(await T("ai_busy", lang)); return
     with suppress(Exception):
         await wait.delete()
-    if not ans:
-        await m.answer(await T("ai_busy", lang)); return
     await ai_remember(uid, "user", txt)
     await ai_remember(uid, "assistant", ans)
     await m.answer(esc(ans), reply_markup=kb([
