@@ -138,7 +138,7 @@ async def t_init():
     check("БД создана", A.db is not None)
     check("корневой узел есть", (await A.q1("SELECT * FROM nodes WHERE id=1")) is not None)
     n = await A.scalar("SELECT COUNT(*) FROM nodes WHERE parent=1")
-    check(f"6 разделов в меню (получено {n})", n == 6)
+    check(f"7 разделов в меню (получено {n})", n == 7)
     form = await A.q1("SELECT * FROM nodes WHERE typ='form'")
     check("кнопка «Написать сейчас» создана", form is not None)
     for l in A.LANGS:
@@ -159,7 +159,8 @@ async def t_client():
     await A.cb_lang(cb(CLIENT, "l:uk"))
     check("приветствие показано", "EUROTOUR" in texts())
     labels = [b for row in last_kb() for b in row]
-    check(f"меню из 6 кнопок: {labels}", len(labels) == 6)
+    check(f"меню из 7 кнопок: {labels}", len(labels) == 7)
+    check("есть кнопка AI-консультанта", any("AI" in l or "Konsultant" in l for l in labels))
     check("панели у клиента НЕТ", not any("Панель" in b for b in labels))
     clear()
     m2 = msg(CLIENT, "/start")

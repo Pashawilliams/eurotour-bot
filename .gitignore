@@ -1,15 +1,10 @@
-# ніколи не комітити базу й логи з робочої машини
+__pycache__/
+*.pyc
 *.db
 *.db-wal
 *.db-shm
-*.bak*
 *.log
-data/
-__pycache__/
-*.pyc
-.venv/
-venv/
 .env
-
-# ВИНЯТОК: архівна тека Bekap зберігається у репозиторії цілком
-!Bekap/**
+.env.*
+*.key
+secrets*

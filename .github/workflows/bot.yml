@@ -107,6 +107,7 @@ jobs:
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           OWNER_ID: ${{ secrets.OWNER_ID }}
+          OPENROUTER_KEY: ${{ secrets.OPENROUTER_KEY }}
           DB_PATH: ${{ github.workspace }}/data/eurotour.db
           RESTART_HOURS: "0"          # циклами керує GitHub, не бот
           PYTHONUNBUFFERED: "1"
