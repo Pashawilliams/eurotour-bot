@@ -283,10 +283,10 @@ TARIFF_L = [(6, 8, 120, 6200), (8, 10, 130, 6700), (10, 12, 160, 8250), (12, 14,
 
 SYS_DEF = {
     "ai": {"uk": "🤖 AI-консультант", "ru": "🤖 AI-консультант", "pl": "🤖 Konsultant AI", "en": "🤖 AI consultant"},
-    "ai_hi": {"uk": "🤖 <b>AI-консультант EUROTOUR</b>\n\nПривіт! Запитайте про поїздку, багаж, документи, клас чи умови — відповім одразу.\n\n<i>Вартість рахує система за адресами — натисніть «Забронювати поїздку» в меню.</i>",
-              "ru": "🤖 <b>AI-консультант EUROTOUR</b>\n\nПривет! Спросите о поездке, багаже, документах, классе или условиях — отвечу сразу.\n\n<i>Стоимость считает система по адресам — нажмите «Забронировать поездку» в меню.</i>",
-              "pl": "🤖 <b>Konsultant AI EUROTOUR</b>\n\nCześć! Zapytaj o przejazd, bagaż, dokumenty, klasę lub warunki — odpowiem od razu.\n\n<i>Cenę wylicza system na podstawie adresów — kliknij «Zarezerwuj przejazd» w menu.</i>",
-              "en": "🤖 <b>EUROTOUR AI consultant</b>\n\nHi! Ask about the trip, luggage, documents, class or terms — I'll reply right away.\n\n<i>The price is calculated by the system from your addresses — tap “Book a trip” in the menu.</i>"},
+    "ai_hi": {"uk": "🤖 <b>AI-консультант EUROTOUR</b>\n\nПривіт! Запитайте про поїздку, вартість, багаж, документи, клас чи умови — відповім одразу.",
+              "ru": "🤖 <b>AI-консультант EUROTOUR</b>\n\nПривет! Спросите о поездке, стоимости, багаже, документах, классе или условиях — отвечу сразу.",
+              "pl": "🤖 <b>Konsultant AI EUROTOUR</b>\n\nCześć! Zapytaj o przejazd, cenę, bagaż, dokumenty, klasę lub warunki — odpowiem od razu.",
+              "en": "🤖 <b>EUROTOUR AI consultant</b>\n\nHi! Ask about the trip, price, luggage, documents, class or terms — I'll reply right away."},
     "ai_calc": {"uk": "🗺 Рахую маршрут…", "ru": "🗺 Считаю маршрут…",
                 "pl": "🗺 Obliczam trasę…", "en": "🗺 Calculating the route…"},
     "ai_wait": {"uk": "⏳ Думаю…", "ru": "⏳ Думаю…", "pl": "⏳ Myślę…", "en": "⏳ Thinking…"},
@@ -652,6 +652,15 @@ async def init_db() -> None:
         await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('tarif_v2','1')")
         await db.commit()
         log.info("Тарифи оновлено до версії 2 (+30 EUR)")
+    # привітання консультанта: прибрати стару приписку про «Забронювати поїздку»
+    # (тепер ціну рахує сам консультант). Робимо один раз.
+    cur = await db.execute("SELECT v FROM cfg WHERE k='aihi_v2'")
+    if not await cur.fetchone():
+        for l, v in SYS_DEF["ai_hi"].items():
+            await db.execute("UPDATE sys SET v=? WHERE k='ai_hi' AND lang=?", (v, l))
+        await db.execute("INSERT OR REPLACE INTO cfg(k,v) VALUES('aihi_v2','1')")
+        await db.commit()
+        log.info("Привітання AI-консультанта оновлено")
 
     cur = await db.execute("SELECT v FROM cfg WHERE k='mymsgbtn'")
     if not await cur.fetchone():
@@ -1856,12 +1865,14 @@ async def ai_ask(messages: list[dict], maxtok: int = 420,
     return None
 
 
-async def ai_stream(messages: list[dict], on_chunk, maxtok: int = 420) -> str | None:
+async def ai_stream(messages: list[dict], on_chunk, maxtok: int = 420,
+                    tools: list | None = None) -> str | dict | None:
     """Потокова відповідь: on_chunk(текст) викликається у міру надходження.
 
     Телеграм не має справжнього стрімінгу, тому ефект друку робимо
-    редагуванням одного повідомлення. Якщо потік не вдався — вертаємо None,
-    і викликач падає на звичайний (не потоковий) запит.
+    редагуванням одного повідомлення. Підтримує інструменти: якщо модель
+    попросила виклик — повертає {"tool_calls": [...]} замість тексту.
+    Якщо потік не вдався — None, і викликач падає на звичайний запит.
     """
     if not AI_KEY:
         return None
@@ -1873,15 +1884,23 @@ async def ai_stream(messages: list[dict], on_chunk, maxtok: int = 420) -> str | 
     for model in AI_MODELS:
         body = {"model": model, "messages": messages, "max_tokens": maxtok,
                 "temperature": 0.2, "stream": True}
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = "auto"
         acc = ""
+        tcs: dict[int, dict] = {}
+        bad = False
         try:
-            to = aiohttp.ClientTimeout(total=AI_TIMEOUT + 20)
+            to = aiohttp.ClientTimeout(total=AI_TIMEOUT + 20, sock_read=AI_TIMEOUT)
             async with aiohttp.ClientSession(timeout=to) as ses:
                 async with ses.post(AI_URL, json=body, headers=hdr) as r:
                     if r.status != 200:
+                        log.info("AI stream %s: HTTP %s", model, r.status)
                         continue
                     async for raw in r.content:
                         line = raw.decode("utf-8", "ignore").strip()
+                        if not line or line.startswith(":"):
+                            continue            # коментар-пульс від сервера
                         if not line.startswith("data:"):
                             continue
                         data = line[5:].strip()
@@ -1893,12 +1912,31 @@ async def ai_stream(messages: list[dict], on_chunk, maxtok: int = 420) -> str | 
                             continue
                         ch = (j.get("choices") or [{}])[0]
                         if (ch.get("finish_reason") == "error") or j.get("error"):
-                            acc = ""
+                            bad = True
                             break
-                        piece = (ch.get("delta") or {}).get("content") or ""
+                        delta = ch.get("delta") or {}
+                        # ── модель просить інструмент: збираємо шматки аргументів ──
+                        for d in (delta.get("tool_calls") or []):
+                            cur = tcs.setdefault(d.get("index", 0),
+                                                 {"id": "", "type": "function",
+                                                  "function": {"name": "", "arguments": ""}})
+                            if d.get("id"):
+                                cur["id"] = d["id"]
+                            fn = d.get("function") or {}
+                            if fn.get("name"):
+                                cur["function"]["name"] = fn["name"]
+                            if fn.get("arguments"):
+                                cur["function"]["arguments"] += fn["arguments"]
+                        piece = delta.get("content") or ""
                         if piece:
                             acc += piece
                             await on_chunk(acc)
+            if bad:
+                continue
+            if tcs:
+                calls = [tcs[k] for k in sorted(tcs) if tcs[k]["function"]["name"]]
+                if calls:
+                    return {"tool_calls": calls, "model": model}
             out = ai_clean(acc)
             if out:
                 return out
@@ -1906,6 +1944,40 @@ async def ai_stream(messages: list[dict], on_chunk, maxtok: int = 420) -> str | 
             log.warning("AI stream %s: %s", model, type(e).__name__)
     return None
 
+
+def ai_typer(bubble: Message):
+    """Робить функцію on_chunk: плавний, але ощадливий ефект друку.
+
+    Перше оновлення — майже одразу (клієнт бачить, що пішла відповідь),
+    далі рідше. Якщо Telegram просить пригальмувати — чекаємо рівно стільки,
+    скільки він сказав, і не сиплемо помилками.
+    """
+    st = {"last": 0.0, "shown": "", "wait": 0.0, "first": True}
+
+    async def on_chunk(cur: str) -> None:
+        t = time.monotonic()
+        if t < st["wait"]:
+            return
+        gap = 0.4 if st["first"] else 0.8
+        need = 10 if st["first"] else 30
+        if t - st["last"] < gap or len(cur) - len(st["shown"]) < need:
+            return
+        body = ai_clean(cur)
+        if not body or body == st["shown"]:
+            return
+        st["last"] = t
+        st["shown"] = body
+        st["first"] = False
+        try:
+            await bubble.edit_text(esc(body) + " ▌")
+        except TelegramRetryAfter as e:
+            st["wait"] = time.monotonic() + float(getattr(e, "retry_after", 3) or 3)
+        except (TelegramBadRequest, TelegramNetworkError):
+            pass
+        except Exception:
+            pass
+
+    return on_chunk
 
 def ai_clean(t: str) -> str:
     """Прибирає «роздуми» моделі, розмітку й теги — у Telegram має піти чистий текст."""
@@ -2050,12 +2122,15 @@ async def ai_reply(m: Message, uid: int) -> None:
     with suppress(Exception):
         await m.bot.send_chat_action(m.chat.id, "typing")
     bubble = await m.answer("▌")
+    on_chunk = ai_typer(bubble)
 
-    # ── крок 1: даємо моделі можливість викликати інструмент ──
-    first = await ai_ask(msgs, tools=AI_TOOLS)
-    used_tool = False
+    # ── крок 1: стрімимо одразу; модель може попросити інструмент ──
+    first = await ai_stream(msgs, on_chunk, maxtok=700, tools=AI_TOOLS)
+    if first is None:
+        first = await ai_ask(msgs, maxtok=700, tools=AI_TOOLS)
+
+    ans = first if isinstance(first, str) else None
     if isinstance(first, dict) and first.get("tool_calls"):
-        used_tool = True
         with suppress(Exception):
             await bubble.edit_text(await T("ai_calc", ulng))
         calls = first["tool_calls"][:3]
@@ -2070,35 +2145,12 @@ async def ai_reply(m: Message, uid: int) -> None:
             res = await ai_run_tool(m, uid, nm, args, lang)
             msgs.append({"role": "tool", "tool_call_id": tc.get("id", nm),
                          "name": nm, "content": res})
-
-    # ── крок 2: фінальна відповідь (з ефектом друку) ──
-    state = {"last": 0.0, "shown": "", "n": 0}
-
-    async def on_chunk(cur: str) -> None:
-        t = time.monotonic()
-        if t - state["last"] < 0.7 or len(cur) - state["n"] < 24:
-            return
-        state["last"] = t
-        state["n"] = len(cur)
-        body = ai_clean(cur)
-        if not body or body == state["shown"]:
-            return
-        state["shown"] = body
-        with suppress(Exception):
-            await bubble.edit_text(esc(body) + " ▌")
-
-    if used_tool:
-        ans = await ai_stream(msgs, on_chunk, maxtok=700) or \
-              await ai_ask(msgs, maxtok=700)
-    elif isinstance(first, str):
-        ans = first
-        with suppress(Exception):
-            await bubble.edit_text(esc(ans) + " ▌")
-    else:
-        ans = await ai_stream(msgs, on_chunk, maxtok=700) or \
-              await ai_ask(msgs, maxtok=700)
-    if isinstance(ans, dict):
-        ans = None
+        # ── крок 2: фінальна відповідь з уже точними даними ──
+        on_chunk = ai_typer(bubble)
+        ans = await ai_stream(msgs, on_chunk, maxtok=700)
+        if not isinstance(ans, str) or not ans:
+            r2 = await ai_ask(msgs, maxtok=700)
+            ans = r2 if isinstance(r2, str) else None
 
     # якщо модель зірвалася на іншу мову — один раз перепитуємо жорсткіше
     if ans and not ai_lang_ok(ans, lang):
@@ -2188,20 +2240,11 @@ async def ai_admin(m: Message, uid: int, txt: str) -> None:
     hist = await ai_history(uid)
     msgs = [{"role": "system", "content": sysmsg}] + hist + \
            [{"role": "user", "content": txt[:1500]}]
-    st2 = {"last": 0.0, "n": 0}
-
-    async def on_chunk(cur: str) -> None:
-        t = time.monotonic()
-        if t - st2["last"] < 0.7 or len(cur) - st2["n"] < 24:
-            return
-        st2["last"] = t
-        st2["n"] = len(cur)
-        body = ai_clean(cur)
-        if body:
-            with suppress(Exception):
-                await wait.edit_text(esc(body) + " ▌")
+    on_chunk = ai_typer(wait)
 
     ans = await ai_stream(msgs, on_chunk, maxtok=600) or await ai_ask(msgs, maxtok=600)
+    if isinstance(ans, dict):
+        ans = None
     if not ans:
         with suppress(Exception):
             await wait.delete()
