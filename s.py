@@ -1559,12 +1559,69 @@ def fmt_hours(h: float, lang: str = "uk") -> str:
 # Ключ береться ЛИШЕ зі змінної оточення (GitHub Secrets) — у коді його немає.
 AI_KEY = os.getenv("OPENROUTER_KEY", "").strip()
 AI_URL = "https://openrouter.ai/api/v1/chat/completions"
-# Порядок моделей = порядок спроб. Безкоштовні; якщо перша зайнята (429),
-# автоматично беремо наступну, тому консультант не «падає» на рівному місці.
-AI_MODELS = ["inclusionai/ling-3.0-flash-vl:free",
-             "google/gemma-4-31b-it:free",
-             "dots-studio/dots-3-note-preview:free",
-             "nvidia/nemotron-3-super-120b-a12b:free"]
+
+# ── ПРОВАЙДЕРИ НЕЙРОМЕРЕЖ ─────────────────────────────────────────────────
+# Денний ліміт OpenRouter (50 запитів) рахується НА ВЕСЬ АКАУНТ, а не на
+# модель, тому перебирати лише моделі всередині нього — марно: коли квота
+# вичерпана, усі вони віддають 429. Тому перебираємо саме ПРОВАЙДЕРІВ:
+# у кожного власний ключ і власна квота. Порядок = порядок спроб.
+# Груповий ключ не потрібен — досить додати той, що є, решта просто мовчить.
+AI_PROVIDERS = [
+    {"name": "groq",       # 1000 запитів/добу, без картки
+     "key": os.getenv("GROQ_KEY", "").strip(),
+     "url": "https://api.groq.com/openai/v1/chat/completions",
+     "models": ["openai/gpt-oss-120b", "openai/gpt-oss-20b",
+                "qwen/qwen3.6-27b"]},
+    {"name": "gemini",     # 1500 запитів/добу на Flash-моделях
+     "key": os.getenv("GEMINI_KEY", "").strip(),
+     "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+     "models": ["gemini-2.5-flash", "gemini-2.5-flash-lite"]},
+    {"name": "openrouter",  # 50 запитів/добу — тримаємо останнім
+     "key": AI_KEY,
+     "url": AI_URL,
+     "models": ["inclusionai/ling-3.0-flash-vl:free",
+                "dots-studio/dots-3-note-preview:free",
+                "nvidia/nemotron-3-super-120b-a12b:free"]},
+]
+# Коли провайдер віддав «денний ліміт вичерпано» — не грюкаємо в зачинені
+# двері до самого скидання квоти: {ім'я: час, до якого не чіпати}.
+AI_COOLDOWN: dict[str, float] = {}
+
+
+def ai_alive() -> list[dict]:
+    """Провайдери, у яких є ключ і які зараз не в «карантині» після 429."""
+    t = time.time()
+    return [p for p in AI_PROVIDERS
+            if p["key"] and AI_COOLDOWN.get(p["name"], 0) < t]
+
+
+def ai_pause(name: str, secs: float, why: str = "") -> None:
+    """Відкласти провайдера: квота вичерпана або він недоступний."""
+    secs = max(60.0, min(float(secs or 0), 24 * 3600))
+    AI_COOLDOWN[name] = time.time() + secs
+    log.warning("AI: %s недоступний (%s), пропускаю %d хв",
+                name, why or "ліміт", int(secs // 60))
+
+
+def ai_retry_after(hdrs: Any, body: str = "") -> float:
+    """Скільки чекати за відповіддю сервера. Для денної квоти — до скидання."""
+    with suppress(Exception):
+        ra = hdrs.get("Retry-After")
+        if ra:
+            return float(ra)
+    with suppress(Exception):
+        rs = hdrs.get("X-RateLimit-Reset")
+        if rs:
+            left = float(rs) / 1000.0 - time.time()
+            if left > 0:
+                return left
+    # «free-models-per-day» — квота на добу, раніше ранку не відпустить
+    if "per-day" in (body or "") or "daily" in (body or "").lower():
+        return 3600.0
+    return 90.0
+
+
+AI_MODELS = AI_PROVIDERS[-1]["models"]   # сумісність зі старим кодом і тестами
 AI_MAXHIST = 10          # скільки реплік тримати в пам'яті сесії
 AI_TIMEOUT = 45
 
@@ -1826,132 +1883,150 @@ async def ai_tool_contacts() -> str:
 
 
 def ai_on() -> bool:
-    """Чи увімкнений консультант: є ключ і не вимкнено в налаштуваннях."""
-    return bool(AI_KEY) and CFG.get("aion", "1") == "1"
+    """Чи увімкнений консультант: є хоч один ключ і не вимкнено в панелі."""
+    has_key = any(p["key"] for p in AI_PROVIDERS)
+    return has_key and CFG.get("aion", "1") == "1"
 
 
 async def ai_ask(messages: list[dict], maxtok: int = 420,
                  tools: list | None = None) -> str | dict | None:
-    """Запит до OpenRouter з перебором моделей.
+    """Запит до нейромережі з перебором ПРОВАЙДЕРІВ і моделей.
 
-    Повертає текст; якщо модель попросила інструмент — словник
-    {"tool_calls": [...]}; None — жодна модель не відповіла.
+    Спершу Groq, потім Gemini, останнім OpenRouter (у нього найменша квота).
+    Якщо провайдер відповів 429 «ліміт на добу» — відкладаємо його і йдемо
+    до наступного. Повертає текст, {"tool_calls": [...]} або None.
     """
-    if not AI_KEY:
+    provs = ai_alive()
+    if not provs:
         return None
     import aiohttp
-    hdr = {"Authorization": f"Bearer {AI_KEY}",
-           "Content-Type": "application/json",
-           "HTTP-Referer": "https://eurotour.pp.ua",
-           "X-Title": "EUROTOUR Bot"}
     last = ""
-    for model in AI_MODELS:
-        body = {"model": model, "messages": messages,
-                "max_tokens": maxtok, "temperature": 0.3}
-        if tools:
-            body["tools"] = tools
-            body["tool_choice"] = "auto"
-        try:
-            to = aiohttp.ClientTimeout(total=AI_TIMEOUT)
-            async with aiohttp.ClientSession(timeout=to) as s:
-                async with s.post(AI_URL, json=body, headers=hdr) as r:
-                    if r.status in (429, 402, 503):       # зайнято / ліміт
-                        last = f"{model}:{r.status}"
-                        continue
-                    if r.status != 200:
-                        last = f"{model}:{r.status}"
-                        continue
-                    j = await r.json()
-            msg = ((j.get("choices") or [{}])[0].get("message") or {})
-            if msg.get("tool_calls"):
-                return {"tool_calls": msg["tool_calls"], "model": model}
-            txt = ai_clean(msg.get("content") or "")
-            if txt:
-                return txt
-            last = f"{model}:empty"
-        except Exception as e:
-            last = f"{model}:{type(e).__name__}"
-    log.warning("AI: усі моделі недоступні (%s)", last)
+    for prov in provs:
+        hdr = {"Authorization": f"Bearer {prov['key']}",
+               "Content-Type": "application/json",
+               "HTTP-Referer": "https://eurotour.pp.ua",
+               "X-Title": "EUROTOUR Bot"}
+        for model in prov["models"]:
+            body = {"model": model, "messages": messages,
+                    "max_tokens": maxtok, "temperature": 0.3}
+            if tools:
+                body["tools"] = tools
+                body["tool_choice"] = "auto"
+            try:
+                to = aiohttp.ClientTimeout(total=AI_TIMEOUT)
+                async with aiohttp.ClientSession(timeout=to) as s:
+                    async with s.post(prov["url"], json=body, headers=hdr) as r:
+                        if r.status in (429, 402, 403):
+                            txt = (await r.text())[:300]
+                            last = f"{prov['name']}/{model}:{r.status}"
+                            # денна квота вичерпана — решта моделей цього
+                            # провайдера теж мовчатимуть, не витрачаємо час
+                            if r.status != 429 or "per-day" in txt or "daily" in txt.lower():
+                                ai_pause(prov["name"],
+                                         ai_retry_after(r.headers, txt), str(r.status))
+                                break
+                            continue
+                        if r.status != 200:
+                            last = f"{prov['name']}/{model}:{r.status}"
+                            continue
+                        j = await r.json()
+                msg = ((j.get("choices") or [{}])[0].get("message") or {})
+                if msg.get("tool_calls"):
+                    return {"tool_calls": msg["tool_calls"], "model": model}
+                txt = ai_clean(msg.get("content") or "")
+                if txt:
+                    return txt
+                last = f"{prov['name']}/{model}:empty"
+            except Exception as e:
+                last = f"{prov['name']}/{model}:{type(e).__name__}"
+    log.warning("AI: усі провайдери недоступні (%s)", last)
     return None
 
 
 async def ai_stream(messages: list[dict], on_chunk, maxtok: int = 420,
                     tools: list | None = None) -> str | dict | None:
-    """Потокова відповідь: on_chunk(текст) викликається у міру надходження.
+    """Потокова відповідь з перебором провайдерів (ефект друку в Telegram).
 
-    Телеграм не має справжнього стрімінгу, тому ефект друку робимо
-    редагуванням одного повідомлення. Підтримує інструменти: якщо модель
-    попросила виклик — повертає {"tool_calls": [...]} замість тексту.
-    Якщо потік не вдався — None, і викликач падає на звичайний запит.
+    Підтримує інструменти: якщо модель попросила виклик — повертає
+    {"tool_calls": [...]}. None — жоден провайдер не відповів.
     """
-    if not AI_KEY:
+    provs = ai_alive()
+    if not provs:
         return None
     import aiohttp
-    hdr = {"Authorization": f"Bearer {AI_KEY}",
-           "Content-Type": "application/json",
-           "HTTP-Referer": "https://eurotour.pp.ua",
-           "X-Title": "EUROTOUR Bot"}
-    for model in AI_MODELS:
-        body = {"model": model, "messages": messages, "max_tokens": maxtok,
-                "temperature": 0.2, "stream": True}
-        if tools:
-            body["tools"] = tools
-            body["tool_choice"] = "auto"
-        acc = ""
-        tcs: dict[int, dict] = {}
-        bad = False
-        try:
-            to = aiohttp.ClientTimeout(total=AI_TIMEOUT + 20, sock_read=AI_TIMEOUT)
-            async with aiohttp.ClientSession(timeout=to) as ses:
-                async with ses.post(AI_URL, json=body, headers=hdr) as r:
-                    if r.status != 200:
-                        log.info("AI stream %s: HTTP %s", model, r.status)
-                        continue
-                    async for raw in r.content:
-                        line = raw.decode("utf-8", "ignore").strip()
-                        if not line or line.startswith(":"):
-                            continue            # коментар-пульс від сервера
-                        if not line.startswith("data:"):
+    for prov in provs:
+        hdr = {"Authorization": f"Bearer {prov['key']}",
+               "Content-Type": "application/json",
+               "HTTP-Referer": "https://eurotour.pp.ua",
+               "X-Title": "EUROTOUR Bot"}
+        for model in prov["models"]:
+            body = {"model": model, "messages": messages, "max_tokens": maxtok,
+                    "temperature": 0.2, "stream": True}
+            if tools:
+                body["tools"] = tools
+                body["tool_choice"] = "auto"
+            acc = ""
+            tcs: dict[int, dict] = {}
+            bad = False
+            try:
+                to = aiohttp.ClientTimeout(total=AI_TIMEOUT + 20, sock_read=AI_TIMEOUT)
+                async with aiohttp.ClientSession(timeout=to) as ses:
+                    async with ses.post(prov["url"], json=body, headers=hdr) as r:
+                        if r.status in (429, 402, 403):
+                            txt = (await r.text())[:300]
+                            if r.status != 429 or "per-day" in txt or "daily" in txt.lower():
+                                ai_pause(prov["name"],
+                                         ai_retry_after(r.headers, txt), str(r.status))
+                                break
                             continue
-                        data = line[5:].strip()
-                        if data == "[DONE]":
-                            break
-                        try:
-                            j = json.loads(data)
-                        except Exception:
+                        if r.status != 200:
+                            log.info("AI stream %s/%s: HTTP %s", prov["name"], model, r.status)
                             continue
-                        ch = (j.get("choices") or [{}])[0]
-                        if (ch.get("finish_reason") == "error") or j.get("error"):
-                            bad = True
-                            break
-                        delta = ch.get("delta") or {}
-                        # ── модель просить інструмент: збираємо шматки аргументів ──
-                        for d in (delta.get("tool_calls") or []):
-                            cur = tcs.setdefault(d.get("index", 0),
-                                                 {"id": "", "type": "function",
-                                                  "function": {"name": "", "arguments": ""}})
-                            if d.get("id"):
-                                cur["id"] = d["id"]
-                            fn = d.get("function") or {}
-                            if fn.get("name"):
-                                cur["function"]["name"] = fn["name"]
-                            if fn.get("arguments"):
-                                cur["function"]["arguments"] += fn["arguments"]
-                        piece = delta.get("content") or ""
-                        if piece:
-                            acc += piece
-                            await on_chunk(acc)
-            if bad:
-                continue
-            if tcs:
-                calls = [tcs[k] for k in sorted(tcs) if tcs[k]["function"]["name"]]
-                if calls:
-                    return {"tool_calls": calls, "model": model}
-            out = ai_clean(acc)
-            if out:
-                return out
-        except Exception as e:
-            log.warning("AI stream %s: %s", model, type(e).__name__)
+                        async for raw in r.content:
+                            line = raw.decode("utf-8", "ignore").strip()
+                            if not line or line.startswith(":"):
+                                continue            # коментар-пульс від сервера
+                            if not line.startswith("data:"):
+                                continue
+                            data = line[5:].strip()
+                            if data == "[DONE]":
+                                break
+                            try:
+                                j = json.loads(data)
+                            except Exception:
+                                continue
+                            ch = (j.get("choices") or [{}])[0]
+                            if (ch.get("finish_reason") == "error") or j.get("error"):
+                                bad = True
+                                break
+                            delta = ch.get("delta") or {}
+                            # ── модель просить інструмент: збираємо аргументи ──
+                            for d in (delta.get("tool_calls") or []):
+                                cur = tcs.setdefault(d.get("index", 0),
+                                                     {"id": "", "type": "function",
+                                                      "function": {"name": "", "arguments": ""}})
+                                if d.get("id"):
+                                    cur["id"] = d["id"]
+                                fn = d.get("function") or {}
+                                if fn.get("name"):
+                                    cur["function"]["name"] = fn["name"]
+                                if fn.get("arguments"):
+                                    cur["function"]["arguments"] += fn["arguments"]
+                            piece = delta.get("content") or ""
+                            if piece:
+                                acc += piece
+                                await on_chunk(acc)
+                if bad:
+                    continue
+                if tcs:
+                    calls = [tcs[k] for k in sorted(tcs) if tcs[k]["function"]["name"]]
+                    if calls:
+                        return {"tool_calls": calls, "model": model}
+                out = ai_clean(acc)
+                if out:
+                    return out
+            except Exception as e:
+                log.warning("AI stream %s/%s: %s", prov["name"], model, type(e).__name__)
     return None
 
 
@@ -2136,7 +2211,7 @@ async def ai_reply(m: Message, uid: int) -> None:
 
     # ── крок 1: стрімимо одразу; модель може попросити інструмент ──
     first = await ai_stream(msgs, on_chunk, maxtok=700, tools=AI_TOOLS)
-    if first is None:
+    if first is None and ai_alive():
         first = await ai_ask(msgs, maxtok=700, tools=AI_TOOLS)
 
     ans = first if isinstance(first, str) else None
@@ -2159,12 +2234,12 @@ async def ai_reply(m: Message, uid: int) -> None:
         # ── крок 2: фінальна відповідь з уже точними даними ──
         on_chunk = ai_typer(bubble)
         ans = await ai_stream(msgs, on_chunk, maxtok=700)
-        if not isinstance(ans, str) or not ans:
+        if (not isinstance(ans, str) or not ans) and ai_alive():
             r2 = await ai_ask(msgs, maxtok=700)
             ans = r2 if isinstance(r2, str) else None
 
     # якщо модель зірвалася на іншу мову — один раз перепитуємо жорсткіше
-    if ans and not ai_lang_ok(ans, lang):
+    if ans and not ai_lang_ok(ans, lang) and ai_alive():
         log.info("AI: відповідь не тією мовою (%s), повторюю", lang)
         fixed = await ai_ask([{"role": "system", "content": sysmsg},
                               {"role": "user", "content": txt[:1500]},
