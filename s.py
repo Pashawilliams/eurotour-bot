@@ -1575,7 +1575,7 @@ AI_PROVIDERS = [
     {"name": "gemini",     # 1500 запитів/добу на Flash-моделях
      "key": os.getenv("GEMINI_KEY", "").strip(),
      "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-     "models": ["gemini-2.5-flash", "gemini-2.5-flash-lite"]},
+     "models": ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]},
     {"name": "openrouter",  # 50 запитів/добу — тримаємо останнім
      "key": AI_KEY,
      "url": AI_URL,
@@ -1905,7 +1905,9 @@ async def ai_ask(messages: list[dict], maxtok: int = 420,
         hdr = {"Authorization": f"Bearer {prov['key']}",
                "Content-Type": "application/json",
                "HTTP-Referer": "https://eurotour.pp.ua",
-               "X-Title": "EUROTOUR Bot"}
+               "X-Title": "EUROTOUR Bot",
+               # без звичайного User-Agent Cloudflare у Groq віддає 403 (1010)
+               "User-Agent": "Mozilla/5.0 (compatible; EurotourBot/1.0)"}
         for model in prov["models"]:
             body = {"model": model, "messages": messages,
                     "max_tokens": maxtok, "temperature": 0.3}
@@ -1933,7 +1935,10 @@ async def ai_ask(messages: list[dict], maxtok: int = 420,
                 msg = ((j.get("choices") or [{}])[0].get("message") or {})
                 if msg.get("tool_calls"):
                     return {"tool_calls": msg["tool_calls"], "model": model}
-                txt = ai_clean(msg.get("content") or "")
+                # деякі моделі (gpt-oss) кладуть відповідь у reasoning,
+                # лишаючи content порожнім — не втрачаємо таку відповідь
+                txt = ai_clean(msg.get("content") or "") or \
+                      ai_clean(msg.get("reasoning") or "")
                 if txt:
                     return txt
                 last = f"{prov['name']}/{model}:empty"
@@ -1958,7 +1963,9 @@ async def ai_stream(messages: list[dict], on_chunk, maxtok: int = 420,
         hdr = {"Authorization": f"Bearer {prov['key']}",
                "Content-Type": "application/json",
                "HTTP-Referer": "https://eurotour.pp.ua",
-               "X-Title": "EUROTOUR Bot"}
+               "X-Title": "EUROTOUR Bot",
+               # без звичайного User-Agent Cloudflare у Groq віддає 403 (1010)
+               "User-Agent": "Mozilla/5.0 (compatible; EurotourBot/1.0)"}
         for model in prov["models"]:
             body = {"model": model, "messages": messages, "max_tokens": maxtok,
                     "temperature": 0.2, "stream": True}
