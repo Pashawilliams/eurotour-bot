@@ -1587,6 +1587,15 @@ AI_PROVIDERS = [
 # двері до самого скидання квоти: {ім'я: час, до якого не чіпати}.
 AI_COOLDOWN: dict[str, float] = {}
 
+# Моделі-«мислителі» пишуть свої роздуми (англійською) у вивід. Клієнту й
+# адміну це показувати не можна, тому просимо провайдера сховати роздуми.
+# Набір полів різний навіть у межах одного провайдера — тому по моделях.
+AI_NOTHINK = {
+    "openai/gpt-oss-120b": {"reasoning_effort": "low", "reasoning_format": "hidden"},
+    "openai/gpt-oss-20b": {"reasoning_effort": "low", "reasoning_format": "hidden"},
+    "qwen/qwen3.6-27b": {"reasoning_effort": "none", "reasoning_format": "hidden"},
+}
+
 
 def ai_alive() -> list[dict]:
     """Провайдери, у яких є ключ і які зараз не в «карантині» після 429."""
@@ -1660,9 +1669,11 @@ Lux завжди дорожчий за Comfort рівно на 40 EUR на то�
 
 ДОКУМЕНТИ ДЛЯ ВИЇЗДУ: внутрішній паспорт, закордонний паспорт і, за потреби,
 документ, що підтверджує право виїзду за кордон.
-ДИТИНА: свідоцтво про народження або паспорт + закордонний паспорт. Якщо дитина
-їде лише з одним із батьків — нотаріальний дозвіл другого з батьків.
-ТВАРИНА: ветпаспорт з усіма щепленнями, чипування, сертифікат здоров'я.
+ДИТИНА (людина): свідоцтво про народження або паспорт + закордонний паспорт.
+Якщо дитина їде лише з одним із батьків — нотаріальний дозвіл другого з батьків.
+Для дитини ветеринарні документи НЕ потрібні — це стосується лише тварин.
+ТВАРИНА (кіт, собака тощо): ветпаспорт з усіма щепленнями, чипування,
+сертифікат здоров'я. Ці вимоги діють ТІЛЬКИ для тварин, не для людей.
 ПРОДУКТИ: у кожної країни свій список обмежень; зазвичай обмежені алкоголь і
 тютюн, заборонені м'ясо, риба, молочні продукти.
 
@@ -1678,7 +1689,11 @@ AI_CONTACTS = """Менеджери EUROTOUR:
 AI_RULES = """ТИ — AI-консультант EUROTOUR. Так і представляйся, якщо запитають.
 
 ЯК ВІДПОВІДАТИ:
-• Коротко: 2-4 речення. Тон ввічливий і солідний, емодзі дозовано (0-2).
+• Обсяг: 2-4 речення, приблизно 200-450 знаків. Не обрізай думку на
+  півслові, але й не розписуй полотно. Тон ввічливий і солідний,
+  емодзі дозовано (0-2).
+• Відповідай ОДРАЗУ по суті. Не показуй хід своїх міркувань, не пиши
+  «мені потрібно…», «користувач запитує…» — лише готова відповідь.
 • Простий текст. Не використовуй Markdown-розмітку (* _ #) і HTML-теги.
 • Пиши без помилок і друкарських одруківок. Перечитай відповідь перед
   надсиланням: кожне слово має бути написане правильно.
@@ -1911,6 +1926,7 @@ async def ai_ask(messages: list[dict], maxtok: int = 420,
         for model in prov["models"]:
             body = {"model": model, "messages": messages,
                     "max_tokens": maxtok, "temperature": 0.3}
+            body.update(AI_NOTHINK.get(model, {}))
             if tools:
                 body["tools"] = tools
                 body["tool_choice"] = "auto"
@@ -1935,10 +1951,9 @@ async def ai_ask(messages: list[dict], maxtok: int = 420,
                 msg = ((j.get("choices") or [{}])[0].get("message") or {})
                 if msg.get("tool_calls"):
                     return {"tool_calls": msg["tool_calls"], "model": model}
-                # деякі моделі (gpt-oss) кладуть відповідь у reasoning,
-                # лишаючи content порожнім — не втрачаємо таку відповідь
-                txt = ai_clean(msg.get("content") or "") or \
-                      ai_clean(msg.get("reasoning") or "")
+                # reasoning НЕ беремо: там внутрішні роздуми моделі (часто
+                # англійською). Порожній content = йдемо до наступної моделі.
+                txt = ai_clean(msg.get("content") or "")
                 if txt:
                     return txt
                 last = f"{prov['name']}/{model}:empty"
@@ -1969,6 +1984,7 @@ async def ai_stream(messages: list[dict], on_chunk, maxtok: int = 420,
         for model in prov["models"]:
             body = {"model": model, "messages": messages, "max_tokens": maxtok,
                     "temperature": 0.2, "stream": True}
+            body.update(AI_NOTHINK.get(model, {}))
             if tools:
                 body["tools"] = tools
                 body["tool_choice"] = "auto"
@@ -2074,10 +2090,13 @@ def ai_typer(bubble: Message):
 def ai_clean(t: str) -> str:
     """Прибирає «роздуми» моделі, розмітку й теги — у Telegram має піти чистий текст."""
     t = re.sub(r"<think>.*?</think>", "", t, flags=re.S | re.I)
+    t = re.sub(r"<think>.*", "", t, flags=re.S | re.I)      # незакритий тег
     # деякі моделі починають з «Okay, the user is asking…» — відрізаємо такий вступ
     for mark in ("\n\n", "\n"):
         if t[:400].lower().startswith(("okay,", "ok,", "here's a thinking",
-                                       "let me ", "first,", "the user ")):
+                                       "let me ", "first,", "the user ",
+                                       "we need to", "i need to", "the client ",
+                                       "so overall", "need concise", "need a ")):
             cut = t.find(mark)
             if cut > 0:
                 t = t[cut:]
@@ -2280,10 +2299,19 @@ async def ai_summary(uid: int) -> str:
     talk = "\n".join(f"{'Клієнт' if h['role'] == 'user' else 'ШІ'}: {h['content'][:300]}"
                      for h in hist[-8:])
     ans = await ai_ask([{"role": "system",
-                         "content": "Стисло, 1-2 речення українською: про що клієнт "
-                                    "питав консультанта і що йому потрібно. Без вступів."},
-                        {"role": "user", "content": talk}], maxtok=150)
-    return ans or talk[:400]
+                         "content": "Напиши УКРАЇНСЬКОЮ 1-2 речення (до 200 знаків): "
+                                    "про що клієнт питав і що йому потрібно. "
+                                    "Одразу текст сводки, без вступів, без пояснень "
+                                    "і без роздумів. Не пиши англійською."},
+                        {"role": "user", "content": talk}], maxtok=400)
+    if ans:
+        ans = " ".join(ans.split())
+        if len(ans) > 260:                     # захист від «полотна» в картці
+            ans = ans[:257].rsplit(" ", 1)[0] + "…"
+        return ans
+    # модель не впоралась — беремо самі питання клієнта, без роздумів моделі
+    asks = [h["content"].strip() for h in hist if h["role"] == "user"]
+    return " • ".join(asks)[:260]
 
 
 # ─────────── AI для адміна: довідка по боту, тарифах, статистиці ───────────
@@ -2326,10 +2354,13 @@ async def ai_admin(m: Message, uid: int, txt: str) -> None:
     wait = await m.answer("▌")
     facts = await ai_admin_facts()
     sysmsg = ("Ти — технічний помічник адміністратора бота EUROTOUR. "
-              "Відповідай стисло, по суті, українською. Пояснюй, як влаштований бот, "
-              "тарифи, розділи, статистика. ТИ НІЧОГО НЕ ЗМІНЮЄШ — лише пояснюєш і "
-              "підказуєш, де в панелі це зробити руками. Не вигадуй чисел: бери їх "
-              "лише з даних нижче. Без Markdown і HTML.\n\n" + facts)
+              "Відповідай УКРАЇНСЬКОЮ, стисло й по суті: 2-5 речень, "
+              "приблизно 200-600 знаків. Якщо просять список — до 7 пунктів. "
+              "Одразу давай відповідь: не описуй хід своїх міркувань і не пиши "
+              "англійською. Пояснюй, як влаштований бот, тарифи, розділи, "
+              "статистику. ТИ НІЧОГО НЕ ЗМІНЮЄШ — лише пояснюєш і підказуєш, "
+              "де в панелі це зробити руками. Не вигадуй чисел: бери їх лише "
+              "з даних нижче. Без Markdown і HTML.\n\n" + facts)
     hist = await ai_history(uid)
     msgs = [{"role": "system", "content": sysmsg}] + hist + \
            [{"role": "user", "content": txt[:1500]}]
