@@ -1681,10 +1681,42 @@ Lux завжди дорожчий за Comfort рівно на 40 EUR на то�
 апаратури та музичних колективів, групові поїздки, дитячі екскурзії, змагання.
 Підтримка цілодобова, без вихідних. Мови: українська, польська, англійська."""
 
+# Запасні контакти — лише якщо розділ «Зв'язок» порожній. Основне джерело
+# правди — сам розділ у панелі (див. ai_contacts()).
 AI_CONTACTS = """Менеджери EUROTOUR:
 • Сергій — Telegram @eurotourbus1, +380 68 081 3450
 • Олексій — Telegram @pereviznyk001, +380 97 345 20 25
 Сайт: https://eurotour.pp.ua"""
+
+
+async def ai_contacts(lang: str = "uk") -> str:
+    """Актуальні контакти для ІІ — беремо з розділу «Зв'язок».
+
+    Власник змінює номери в панелі, і консультант одразу говорить нові:
+    жодного дублювання телефонів у коді. Службову «шапку» розділу
+    (⚙️ Панель › …) прибираємо — клієнту вона не потрібна.
+    """
+    body = ""
+    with suppress(Exception):
+        body, _ = await contact_block(lang)
+    if body:
+        body = re.sub(r"<[^>]+>", "", body)          # html-теги
+        # відрізати адмінську «шапку» до роздільника, якщо вона є
+        if "━━" in body:
+            body = body.rsplit("━━", 1)[-1]
+        lines = [l.rstrip().strip("━ ").rstrip() for l in body.splitlines()]
+        lines = [l for l in lines
+                 if l.strip() and not l.lstrip().startswith(("⚙️", "🏷", "🔧", "🌍", "🖼"))]
+        out = "\n".join(lines).strip()
+        if out:
+            # адресу сайту теж беремо з меню (кнопка «Сайт»), а не з коду
+            with suppress(Exception):
+                sn = await q1("SELECT target FROM nodes WHERE sys='site' LIMIT 1")
+                site = (sn["target"] if sn else "") or ""
+                if site and site not in out:
+                    out += f"\nСайт: {site}"
+            return out
+    return AI_CONTACTS
 
 AI_RULES = """ТИ — AI-консультант EUROTOUR. Так і представляйся, якщо запитають.
 
@@ -1892,8 +1924,8 @@ async def ai_tool_route(from_addr: str, to_addr: str, cls: str = "c", lang: str 
     return "\n".join(out)
 
 
-async def ai_tool_contacts() -> str:
-    return ("КОНТАКТИ (дай клієнту повністю):\n" + AI_CONTACTS +
+async def ai_tool_contacts(lang: str = "uk") -> str:
+    return ("КОНТАКТИ (дай клієнту повністю, дослівно):\n" + await ai_contacts(lang) +
             "\nТакож скажи, що можна натиснути кнопку «Написати менеджеру» під повідомленням.")
 
 
@@ -2103,7 +2135,10 @@ def ai_clean(t: str) -> str:
                 continue
         break
     t = re.sub(r"^\s*(assistant|відповідь)\s*:\s*", "", t, flags=re.I)
-    t = re.sub(r"[*_#`]+", "", t)                    # markdown
+    # markdown прибираємо, але НЕ чіпаємо «_» усередині слів:
+    # інакше @pereviznyk_support перетворюється на @pereviznyksupport
+    t = re.sub(r"[*#`]+", "", t)
+    t = re.sub(r"(?<![\w])_+|_+(?![\w])", "", t)
     t = re.sub(r"<[^>]{1,40}>", "", t)               # випадкові теги
     return t.strip()[:3500]
 
@@ -2190,7 +2225,8 @@ async def ai_connect_manager(m: Message, uid: int, reason: str) -> str:
     if not sent:
         return "Передати не вдалося. Дай клієнту контакти менеджерів."
     return ("ПЕРЕДАНО МЕНЕДЖЕРУ. Скажи клієнту, що ти вже передав його запит "
-            "менеджеру і той звʼяжеться найближчим часом. Додай контакти:\n" + AI_CONTACTS)
+            "менеджеру і той звʼяжеться найближчим часом. Додай контакти:\n"
+            + await ai_contacts(lang))
 
 
 async def ai_run_tool(m: Message, uid: int, name: str, args: dict, lang: str) -> str:
@@ -2203,7 +2239,7 @@ async def ai_run_tool(m: Message, uid: int, name: str, args: dict, lang: str) ->
         if name == "connect_manager":
             return await ai_connect_manager(m, uid, str(args.get("reason", "консультація")))
         if name == "get_contacts":
-            return await ai_tool_contacts()
+            return await ai_tool_contacts(lang)
     except Exception as e:
         log.warning("AI tool %s: %s", name, e)
     return "Інструмент недоступний. Відповідай із того, що знаєш."
@@ -2218,14 +2254,15 @@ async def ai_reply(m: Message, uid: int) -> None:
 
     kbrd = ai_kb(ulng, await T("home", ulng), await T("ai_mgr", ulng))
     if not ai_on():
-        await m.answer(await T("ai_off", ulng) + "\n\n" + AI_CONTACTS, reply_markup=kbrd)
+        await m.answer(await T("ai_off", ulng) + "\n\n" + await ai_contacts(ulng),
+                       reply_markup=kbrd)
         return
 
     # мову беремо з самого тексту, а не з налаштувань меню
     lang = ai_detect_lang(txt, ulng)
     sysmsg = (ai_lang_order(lang) + "\n\n" + AI_RULES +
               "\n\nФАКТИ ПРО КОМПАНІЮ:\n" + AI_FACTS +
-              "\n\nКОНТАКТИ:\n" + AI_CONTACTS)
+              "\n\nКОНТАКТИ (актуальні, лише ці):\n" + await ai_contacts(lang))
     hist = await ai_history(uid)
     msgs = [{"role": "system", "content": sysmsg}] + hist + \
            [{"role": "user", "content": txt[:1500]}]
@@ -2278,7 +2315,8 @@ async def ai_reply(m: Message, uid: int) -> None:
     if not ans:
         with suppress(Exception):
             await bubble.delete()
-        await m.answer(await T("ai_busy", ulng) + "\n\n" + AI_CONTACTS, reply_markup=kbrd)
+        await m.answer(await T("ai_busy", ulng) + "\n\n" + await ai_contacts(ulng),
+                       reply_markup=kbrd)
         return
 
     await ai_remember(uid, "user", txt)
